@@ -1,0 +1,10 @@
+[package]
+name = "rgf-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Simulated vehicles that speak the framework's struct-frame protocol"
+
+[dependencies]
+rgf-core.workspace = true
+image.workspace = true

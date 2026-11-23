@@ -1,0 +1,11 @@
+// Root schema: generating from this file emits every package.
+package rgf;
+option pkgid = 0;
+import "common.sf";
+import "telemetry.sf";
+import "control.sf";
+import "params.sf";
+import "mission.sf";
+import "sensors.sf";
+import "rtk.sf";
+import "simctl.sf";

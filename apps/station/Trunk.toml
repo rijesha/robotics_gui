@@ -1,0 +1,8 @@
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+# Reachable from a phone on the same network.
+addresses = ["0.0.0.0"]
+port = 8080

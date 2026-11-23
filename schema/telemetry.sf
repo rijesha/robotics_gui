@@ -1,0 +1,54 @@
+package telemetry;
+option pkgid = 2;
+
+enum FixType { NO_FIX = 0; FIX_3D = 1; RTK_FLOAT = 2; RTK_FIXED = 3; }
+enum NavState { NAV_IDLE = 0; NAV_RUNNING = 1; NAV_PAUSED = 2; NAV_COMPLETE = 3; }
+
+// heading_rad is compass heading (0 = north, clockwise positive); yaw_rate follows the same sign.
+message Pose {
+  option msgid = 1;
+  uint32 time_ms = 1;
+  double lat = 2;
+  double lon = 3;
+  float alt_m = 4;
+  float heading_rad = 5;
+  float roll_rad = 6;
+  float pitch_rad = 7;
+  float speed_mps = 8;
+  float yaw_rate_rps = 9;
+  float steer_rad = 10;
+  FixType fix = 11;
+  float h_acc_m = 12;
+  uint8 sats = 13;
+}
+
+message MotorStatus {
+  option msgid = 2;
+  uint8 index = 1;
+  float command = 2;
+  float rpm = 3;
+  float current_a = 4;
+  float voltage_v = 5;
+  float temp_c = 6;
+  float position_rad = 7;
+  uint8 faults = 8;
+}
+
+message PowerStatus {
+  option msgid = 3;
+  float voltage_v = 1;
+  float current_a = 2;
+  float power_w = 3;
+  float consumed_wh = 4;
+  float soc_pct = 5;
+  float time_remaining_s = 6;
+}
+
+message NavStatus {
+  option msgid = 4;
+  NavState state = 1;
+  uint16 active_wp = 2;
+  uint16 wp_count = 3;
+  float xtrack_m = 4;
+  float dist_to_wp_m = 5;
+}

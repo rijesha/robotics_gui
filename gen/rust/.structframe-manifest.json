@@ -1,0 +1,16 @@
+{
+  "../../schema/rgf.sf#rust": [
+    "Cargo.toml",
+    "common.structframe.rs",
+    "control.structframe.rs",
+    "lib.rs",
+    "mission.structframe.rs",
+    "params.structframe.rs",
+    "rgf.structframe.rs",
+    "rtk.structframe.rs",
+    "sensors.structframe.rs",
+    "sf_compile.json",
+    "simctl.structframe.rs",
+    "telemetry.structframe.rs"
+  ]
+}

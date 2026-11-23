@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["gen/rust", "crates/rgf-core", "crates/rgf-sim", "crates/rgf-backend", "crates/rgf-ui", "apps/station"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+struct_frame_sdk = { path = "gen/rust" }
+rgf-core = { path = "crates/rgf-core" }
+rgf-sim = { path = "crates/rgf-sim" }
+rgf-backend = { path = "crates/rgf-backend" }
+rgf-ui = { path = "crates/rgf-ui" }
+egui = "0.37"
+eframe = "0.37"
+egui_plot = "0.38"
+egui_tiles = "0.18"
+walkers = "0.66"
+ewebsock = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+# The simulator ray-marches a heightfield for lidar and video; unoptimised it cannot keep up.
+[profile.dev.package.rgf-sim]
+opt-level = 2
+[profile.dev.package.rgf-core]
+opt-level = 2
+[profile.dev.package.image]
+opt-level = 2
+[profile.dev.package.zune-jpeg]
+opt-level = 2

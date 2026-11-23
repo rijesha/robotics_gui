@@ -1,0 +1,9 @@
+[package]
+name = "rgf-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared, IO-free logic for the robotics GUI framework: codec, delivery tracking, geometry, planning"
+
+[dependencies]
+struct_frame_sdk.workspace = true

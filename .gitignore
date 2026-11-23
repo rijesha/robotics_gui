@@ -1,0 +1,4 @@
+/target
+/.venv
+/apps/station/dist
+.DS_Store

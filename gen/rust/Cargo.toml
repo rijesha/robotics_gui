@@ -1,0 +1,9 @@
+[package]
+name = "struct_frame_sdk"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "struct_frame_sdk"
+path = "lib.rs"
+doctest = false

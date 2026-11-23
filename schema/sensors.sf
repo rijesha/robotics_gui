@@ -1,0 +1,28 @@
+package sensors;
+option pkgid = 6;
+
+// ranges_cm is layer-major: layers * points_per_layer entries, azimuth spans 360 degrees
+// clockwise from the vehicle's nose. 0 means no return.
+message LidarScan {
+  option msgid = 1;
+  option variable = true;
+  uint32 time_ms = 1;
+  uint8 layers = 2;
+  uint16 points_per_layer = 3;
+  float elev_min_rad = 4;
+  float elev_step_rad = 5;
+  float mount_height_m = 6;
+  repeated uint16 ranges_cm = 7 [max_size=2880];
+}
+
+// One JPEG image split into chunks small enough for a UDP datagram.
+message VideoFrame {
+  option msgid = 2;
+  option variable = true;
+  uint16 frame_id = 1;
+  uint8 chunk = 2;
+  uint8 chunks = 3;
+  float hfov_rad = 4;
+  float mount_height_m = 5;
+  repeated uint8 data = 6 [max_size=8000];
+}

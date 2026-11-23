@@ -1,0 +1,47 @@
+package common;
+option pkgid = 1;
+
+enum VehicleType { ROVER6 = 0; TRACTOR = 1; SKID_STEER = 2; BOAT = 3; }
+enum KinematicModel { CORNER_STEER = 0; ACKERMANN = 1; SKID = 2; TWIN_THRUSTER = 3; }
+enum ActuatorKind { DRIVE = 0; STEER = 1; THRUSTER = 2; RUDDER = 3; }
+enum AckResult { ACCEPTED = 0; REJECTED = 1; TIMEOUT = 2; }
+enum Mode { DISARMED = 0; MANUAL = 1; MOTOR_TEST = 2; AUTO = 3; HOLD = 4; }
+
+message Heartbeat {
+  option msgid = 1;
+  uint32 uptime_ms = 1;
+  Mode mode = 2;
+  bool estop = 3;
+  VehicleType vehicle_type = 4;
+}
+
+message VehicleInfo {
+  option msgid = 2;
+  VehicleType vehicle_type = 1;
+  KinematicModel model = 2;
+  string name = 3 [size=24];
+  float length_m = 4;
+  float width_m = 5;
+  float wheelbase_m = 6;
+  float track_m = 7;
+  float max_speed_mps = 8;
+  float max_steer_rad = 9;
+  uint8 actuator_count = 10;
+}
+
+message ActuatorInfo {
+  option msgid = 3;
+  uint8 index = 1;
+  ActuatorKind kind = 2;
+  string name = 3 [size=16];
+  float x_m = 4;
+  float y_m = 5;
+}
+
+// Reply to every message that carries a seq field.
+message CommandAck {
+  option msgid = 4;
+  uint16 seq = 1;
+  uint16 msg_id = 2;
+  AckResult result = 3;
+}

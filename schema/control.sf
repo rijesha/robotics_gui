@@ -1,0 +1,29 @@
+package control;
+option pkgid = 3;
+import "common.sf";
+
+message SetMode {
+  option msgid = 1;
+  uint16 seq = 1;
+  common.Mode mode = 2;
+}
+
+// Streamed, not acknowledged; the vehicle stops if the stream goes quiet.
+message DriveCommand {
+  option msgid = 2;
+  float throttle = 1;
+  float steer = 2;
+}
+
+// Streamed, not acknowledged; only honoured in MOTOR_TEST mode.
+message MotorCommand {
+  option msgid = 3;
+  uint8 index = 1;
+  float value = 2;
+}
+
+message EStop {
+  option msgid = 4;
+  uint16 seq = 1;
+  bool engage = 2;
+}

@@ -1,0 +1,15 @@
+[package]
+name = "rgf-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ground-station backend: bridges UIs to the vehicle link, retries commands, runs the RTK base"
+
+[dependencies]
+rgf-core.workspace = true
+tokio = { version = "1", features = ["rt", "net", "time", "sync", "macros"] }
+tokio-tungstenite = "0.30"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+[dev-dependencies]
+rgf-sim.workspace = true

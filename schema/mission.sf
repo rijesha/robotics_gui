@@ -1,0 +1,25 @@
+package mission;
+option pkgid = 5;
+
+enum MissionAction { MISSION_START = 0; MISSION_PAUSE = 1; MISSION_CLEAR = 2; }
+
+message MissionCount {
+  option msgid = 1;
+  uint16 seq = 1;
+  uint16 count = 2;
+}
+
+message MissionItem {
+  option msgid = 2;
+  uint16 seq = 1;
+  uint16 index = 2;
+  double lat = 3;
+  double lon = 4;
+  float speed_mps = 5;
+}
+
+message MissionCommand {
+  option msgid = 3;
+  uint16 seq = 1;
+  MissionAction action = 2;
+}

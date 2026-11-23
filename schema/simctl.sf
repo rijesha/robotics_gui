@@ -1,0 +1,16 @@
+package simctl;
+option pkgid = 8;
+import "common.sf";
+
+message SimSelectVehicle {
+  option msgid = 1;
+  uint16 seq = 1;
+  common.VehicleType vehicle_type = 2;
+}
+
+message SimLinkFault {
+  option msgid = 2;
+  uint16 seq = 1;
+  uint8 loss_pct = 2;
+  bool cut = 3;
+}

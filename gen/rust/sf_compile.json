@@ -1,0 +1,748 @@
+{
+  "messages": [
+    {
+      "name": "ActuatorInfo",
+      "package": "common",
+      "source_file": "common.sf",
+      "msgid": 3,
+      "max_size": 26,
+      "base_size": 26,
+      "min_size": 26,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        57,
+        152
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "ActuatorInfo",
+          "qualified_element": "common::ActuatorInfo"
+        }
+      }
+    },
+    {
+      "name": "CommandAck",
+      "package": "common",
+      "source_file": "common.sf",
+      "msgid": 4,
+      "max_size": 5,
+      "base_size": 5,
+      "min_size": 5,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        25,
+        38
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "CommandAck",
+          "qualified_element": "common::CommandAck"
+        }
+      }
+    },
+    {
+      "name": "Heartbeat",
+      "package": "common",
+      "source_file": "common.sf",
+      "msgid": 1,
+      "max_size": 7,
+      "base_size": 7,
+      "min_size": 7,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        48,
+        106
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "Heartbeat",
+          "qualified_element": "common::Heartbeat"
+        }
+      }
+    },
+    {
+      "name": "VehicleInfo",
+      "package": "common",
+      "source_file": "common.sf",
+      "msgid": 2,
+      "max_size": 51,
+      "base_size": 51,
+      "min_size": 51,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        142,
+        12
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "VehicleInfo",
+          "qualified_element": "common::VehicleInfo"
+        }
+      }
+    },
+    {
+      "name": "MissionCommand",
+      "package": "mission",
+      "source_file": "mission.sf",
+      "msgid": 3,
+      "max_size": 3,
+      "base_size": 3,
+      "min_size": 3,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        19,
+        23
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "mission.structframe.rs",
+          "namespace": "mission",
+          "element": "MissionCommand",
+          "qualified_element": "mission::MissionCommand"
+        }
+      }
+    },
+    {
+      "name": "MissionCount",
+      "package": "mission",
+      "source_file": "mission.sf",
+      "msgid": 1,
+      "max_size": 4,
+      "base_size": 4,
+      "min_size": 4,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        9,
+        13
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "mission.structframe.rs",
+          "namespace": "mission",
+          "element": "MissionCount",
+          "qualified_element": "mission::MissionCount"
+        }
+      }
+    },
+    {
+      "name": "MissionItem",
+      "package": "mission",
+      "source_file": "mission.sf",
+      "msgid": 2,
+      "max_size": 24,
+      "base_size": 24,
+      "min_size": 24,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        47,
+        115
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "mission.structframe.rs",
+          "namespace": "mission",
+          "element": "MissionItem",
+          "qualified_element": "mission::MissionItem"
+        }
+      }
+    },
+    {
+      "name": "ParamRequestList",
+      "package": "params",
+      "source_file": "params.sf",
+      "msgid": 1,
+      "max_size": 2,
+      "base_size": 2,
+      "min_size": 2,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        4,
+        4
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "params.structframe.rs",
+          "namespace": "params",
+          "element": "ParamRequestList",
+          "qualified_element": "params::ParamRequestList"
+        }
+      }
+    },
+    {
+      "name": "ParamSet",
+      "package": "params",
+      "source_file": "params.sf",
+      "msgid": 2,
+      "max_size": 8,
+      "base_size": 8,
+      "min_size": 8,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        20,
+        33
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "params.structframe.rs",
+          "namespace": "params",
+          "element": "ParamSet",
+          "qualified_element": "params::ParamSet"
+        }
+      }
+    },
+    {
+      "name": "ParamValue",
+      "package": "params",
+      "source_file": "params.sf",
+      "msgid": 3,
+      "max_size": 42,
+      "base_size": 42,
+      "min_size": 42,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        73,
+        26
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "params.structframe.rs",
+          "namespace": "params",
+          "element": "ParamValue",
+          "qualified_element": "params::ParamValue"
+        }
+      }
+    },
+    {
+      "name": "BaseConfig",
+      "package": "rtk",
+      "source_file": "rtk.sf",
+      "msgid": 2,
+      "max_size": 31,
+      "base_size": 31,
+      "min_size": 31,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        77,
+        1
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "rtk.structframe.rs",
+          "namespace": "rtk",
+          "element": "BaseConfig",
+          "qualified_element": "rtk::BaseConfig"
+        }
+      }
+    },
+    {
+      "name": "BaseStatus",
+      "package": "rtk",
+      "source_file": "rtk.sf",
+      "msgid": 1,
+      "max_size": 42,
+      "base_size": 42,
+      "min_size": 42,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        129,
+        161
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "rtk.structframe.rs",
+          "namespace": "rtk",
+          "element": "BaseStatus",
+          "qualified_element": "rtk::BaseStatus"
+        }
+      }
+    },
+    {
+      "name": "RtcmData",
+      "package": "rtk",
+      "source_file": "rtk.sf",
+      "msgid": 3,
+      "max_size": 201,
+      "base_size": 201,
+      "min_size": 1,
+      "is_variable": true,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        2,
+        2
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "rtk.structframe.rs",
+          "namespace": "rtk",
+          "element": "RtcmData",
+          "qualified_element": "rtk::RtcmData"
+        }
+      }
+    },
+    {
+      "name": "LidarScan",
+      "package": "sensors",
+      "source_file": "sensors.sf",
+      "msgid": 1,
+      "max_size": 5781,
+      "base_size": 5781,
+      "min_size": 21,
+      "is_variable": true,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        64,
+        215
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "sensors.structframe.rs",
+          "namespace": "sensors",
+          "element": "LidarScan",
+          "qualified_element": "sensors::LidarScan"
+        }
+      }
+    },
+    {
+      "name": "VideoFrame",
+      "package": "sensors",
+      "source_file": "sensors.sf",
+      "msgid": 2,
+      "max_size": 8014,
+      "base_size": 8014,
+      "min_size": 14,
+      "is_variable": true,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        43,
+        124
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "sensors.structframe.rs",
+          "namespace": "sensors",
+          "element": "VideoFrame",
+          "qualified_element": "sensors::VideoFrame"
+        }
+      }
+    },
+    {
+      "name": "MotorStatus",
+      "package": "telemetry",
+      "source_file": "telemetry.sf",
+      "msgid": 2,
+      "max_size": 26,
+      "base_size": 26,
+      "min_size": 26,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        86,
+        89
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "telemetry.structframe.rs",
+          "namespace": "telemetry",
+          "element": "MotorStatus",
+          "qualified_element": "telemetry::MotorStatus"
+        }
+      }
+    },
+    {
+      "name": "NavStatus",
+      "package": "telemetry",
+      "source_file": "telemetry.sf",
+      "msgid": 4,
+      "max_size": 13,
+      "base_size": 13,
+      "min_size": 13,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        50,
+        145
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "telemetry.structframe.rs",
+          "namespace": "telemetry",
+          "element": "NavStatus",
+          "qualified_element": "telemetry::NavStatus"
+        }
+      }
+    },
+    {
+      "name": "Pose",
+      "package": "telemetry",
+      "source_file": "telemetry.sf",
+      "msgid": 1,
+      "max_size": 54,
+      "base_size": 54,
+      "min_size": 54,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        192,
+        151
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "telemetry.structframe.rs",
+          "namespace": "telemetry",
+          "element": "Pose",
+          "qualified_element": "telemetry::Pose"
+        }
+      }
+    },
+    {
+      "name": "PowerStatus",
+      "package": "telemetry",
+      "source_file": "telemetry.sf",
+      "msgid": 3,
+      "max_size": 24,
+      "base_size": 24,
+      "min_size": 24,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        69,
+        224
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "telemetry.structframe.rs",
+          "namespace": "telemetry",
+          "element": "PowerStatus",
+          "qualified_element": "telemetry::PowerStatus"
+        }
+      }
+    },
+    {
+      "name": "DriveCommand",
+      "package": "control",
+      "source_file": "control.sf",
+      "msgid": 2,
+      "max_size": 8,
+      "base_size": 8,
+      "min_size": 8,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        19,
+        28
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "control.structframe.rs",
+          "namespace": "control",
+          "element": "DriveCommand",
+          "qualified_element": "control::DriveCommand"
+        }
+      }
+    },
+    {
+      "name": "EStop",
+      "package": "control",
+      "source_file": "control.sf",
+      "msgid": 4,
+      "max_size": 3,
+      "base_size": 3,
+      "min_size": 3,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        13,
+        17
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "control.structframe.rs",
+          "namespace": "control",
+          "element": "EStop",
+          "qualified_element": "control::EStop"
+        }
+      }
+    },
+    {
+      "name": "MotorCommand",
+      "package": "control",
+      "source_file": "control.sf",
+      "msgid": 3,
+      "max_size": 5,
+      "base_size": 5,
+      "min_size": 5,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        12,
+        14
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "control.structframe.rs",
+          "namespace": "control",
+          "element": "MotorCommand",
+          "qualified_element": "control::MotorCommand"
+        }
+      }
+    },
+    {
+      "name": "SetMode",
+      "package": "control",
+      "source_file": "control.sf",
+      "msgid": 1,
+      "max_size": 3,
+      "base_size": 3,
+      "min_size": 3,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        19,
+        23
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "control.structframe.rs",
+          "namespace": "control",
+          "element": "SetMode",
+          "qualified_element": "control::SetMode"
+        }
+      }
+    },
+    {
+      "name": "SimLinkFault",
+      "package": "simctl",
+      "source_file": "simctl.sf",
+      "msgid": 2,
+      "max_size": 4,
+      "base_size": 4,
+      "min_size": 4,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        17,
+        28
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "simctl.structframe.rs",
+          "namespace": "simctl",
+          "element": "SimLinkFault",
+          "qualified_element": "simctl::SimLinkFault"
+        }
+      }
+    },
+    {
+      "name": "SimSelectVehicle",
+      "package": "simctl",
+      "source_file": "simctl.sf",
+      "msgid": 1,
+      "max_size": 3,
+      "base_size": 3,
+      "min_size": 3,
+      "is_variable": false,
+      "is_envelope": false,
+      "extensions_start": null,
+      "magic_bytes": [
+        19,
+        23
+      ],
+      "oneofs": null,
+      "generated_files": {
+        "rust": {
+          "path": "simctl.structframe.rs",
+          "namespace": "simctl",
+          "element": "SimSelectVehicle",
+          "qualified_element": "simctl::SimSelectVehicle"
+        }
+      }
+    }
+  ],
+  "enums": [
+    {
+      "name": "AckResult",
+      "package": "common",
+      "source_file": "common.sf",
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "AckResult",
+          "qualified_element": "common::AckResult"
+        }
+      }
+    },
+    {
+      "name": "ActuatorKind",
+      "package": "common",
+      "source_file": "common.sf",
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "ActuatorKind",
+          "qualified_element": "common::ActuatorKind"
+        }
+      }
+    },
+    {
+      "name": "KinematicModel",
+      "package": "common",
+      "source_file": "common.sf",
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "KinematicModel",
+          "qualified_element": "common::KinematicModel"
+        }
+      }
+    },
+    {
+      "name": "Mode",
+      "package": "common",
+      "source_file": "common.sf",
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "Mode",
+          "qualified_element": "common::Mode"
+        }
+      }
+    },
+    {
+      "name": "VehicleType",
+      "package": "common",
+      "source_file": "common.sf",
+      "generated_files": {
+        "rust": {
+          "path": "common.structframe.rs",
+          "namespace": "common",
+          "element": "VehicleType",
+          "qualified_element": "common::VehicleType"
+        }
+      }
+    },
+    {
+      "name": "MissionAction",
+      "package": "mission",
+      "source_file": "mission.sf",
+      "generated_files": {
+        "rust": {
+          "path": "mission.structframe.rs",
+          "namespace": "mission",
+          "element": "MissionAction",
+          "qualified_element": "mission::MissionAction"
+        }
+      }
+    },
+    {
+      "name": "BaseMode",
+      "package": "rtk",
+      "source_file": "rtk.sf",
+      "generated_files": {
+        "rust": {
+          "path": "rtk.structframe.rs",
+          "namespace": "rtk",
+          "element": "BaseMode",
+          "qualified_element": "rtk::BaseMode"
+        }
+      }
+    },
+    {
+      "name": "FixType",
+      "package": "telemetry",
+      "source_file": "telemetry.sf",
+      "generated_files": {
+        "rust": {
+          "path": "telemetry.structframe.rs",
+          "namespace": "telemetry",
+          "element": "FixType",
+          "qualified_element": "telemetry::FixType"
+        }
+      }
+    },
+    {
+      "name": "NavState",
+      "package": "telemetry",
+      "source_file": "telemetry.sf",
+      "generated_files": {
+        "rust": {
+          "path": "telemetry.structframe.rs",
+          "namespace": "telemetry",
+          "element": "NavState",
+          "qualified_element": "telemetry::NavState"
+        }
+      }
+    }
+  ]
+}

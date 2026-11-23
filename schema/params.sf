@@ -1,0 +1,26 @@
+package params;
+option pkgid = 4;
+
+message ParamRequestList {
+  option msgid = 1;
+  uint16 seq = 1;
+}
+
+message ParamSet {
+  option msgid = 2;
+  uint16 seq = 1;
+  uint16 id = 2;
+  float value = 3;
+}
+
+// seq echoes the ParamSet that caused this readback, 0 otherwise.
+message ParamValue {
+  option msgid = 3;
+  uint16 id = 1;
+  string name = 2 [size=24];
+  float value = 3;
+  float min = 4;
+  float max = 5;
+  uint16 count = 6;
+  uint16 seq = 7;
+}

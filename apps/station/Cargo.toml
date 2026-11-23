@@ -1,0 +1,20 @@
+[package]
+name = "station"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Ground station application for desktop, web and mobile"
+
+[dependencies]
+rgf-ui.workspace = true
+rgf-core.workspace = true
+eframe.workspace = true
+
+# Desktop builds carry the backend and the simulator so one launch gives a working system.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rgf-backend.workspace = true
+rgf-sim.workspace = true
+image = { workspace = true, features = ["png"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
