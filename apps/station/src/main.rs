@@ -14,19 +14,23 @@ struct App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) {
-        #[cfg(not(target_arch = "wasm32"))]
-        self.extras.before_frame(ui.ctx(), &mut self.station);
         self.station.ui(ui);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.extras.after_frame(ui.ctx());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn raw_input_hook(&mut self, _ctx: &eframe::egui::Context, raw_input: &mut eframe::egui::RawInput) {
-        self.extras.inject_input(raw_input);
+        self.extras.inject_input(raw_input, &mut self.station);
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+mod demo;
+#[cfg(not(target_arch = "wasm32"))]
 mod native;
+#[cfg(not(target_arch = "wasm32"))]
+mod record;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
@@ -48,19 +52,24 @@ fn main() {
             .expect("#station_canvas is not a canvas");
 
         // The backend is assumed to run on the machine that served this page, unless the
-        // address bar says otherwise with ?backend=ws://host:port
+        // address bar says otherwise with ?backend=ws://host:port. ?theme=light starts light.
         let location = window.location();
-        let from_query = location.search().ok().and_then(|q| {
-            q.trim_start_matches('?').split('&').find_map(|kv| kv.strip_prefix("backend=").map(str::to_owned))
-        });
+        let query = location.search().unwrap_or_default();
+        let param = |key: &str| {
+            query
+                .trim_start_matches('?')
+                .split('&')
+                .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('=').map(str::to_owned))
+        };
         let host = location.hostname().unwrap_or_else(|_| "127.0.0.1".into());
-        let backend = from_query.unwrap_or_else(|| format!("ws://{host}:9002"));
+        let backend = param("backend").unwrap_or_else(|| format!("ws://{host}:9002"));
+        let dark = param("theme").as_deref() != Some("light");
 
         let started = eframe::WebRunner::new()
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(move |cc| Ok(Box::new(App { station: StationApp::new(&cc.egui_ctx, backend, None) }))),
+                Box::new(move |cc| Ok(Box::new(App { station: StationApp::new(&cc.egui_ctx, backend, None, dark) }))),
             )
             .await;
         if let Err(err) = started {

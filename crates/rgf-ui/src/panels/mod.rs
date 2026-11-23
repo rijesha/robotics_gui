@@ -20,7 +20,7 @@ pub fn all(ctx: &egui::Context, tile_cache: Option<PathBuf>) -> Vec<Box<dyn Pane
     vec![
         Box::new(map::MapPanel::new(ctx, tile_cache)),
         Box::new(drive::DrivePanel),
-        Box::new(mission::MissionPanel),
+        Box::new(mission::MissionPanel::default()),
         Box::new(video::VideoPanel::default()),
         Box::new(lidar::LidarPanel::default()),
         Box::new(motors::MotorsPanel),
@@ -32,9 +32,9 @@ pub fn all(ctx: &egui::Context, tile_cache: Option<PathBuf>) -> Vec<Box<dyn Pane
 }
 
 pub const DEFAULT_LAYOUT: DesktopLayout = DesktopLayout {
-    left_top: &["Drive", "Link"],
+    left_top: &["Drive"],
     left_bottom: &["Motors", "Power"],
     center: &["Map"],
     right_top: &["Video", "Lidar"],
-    right_bottom: &["Mission", "Settings", "RTK Base"],
+    right_bottom: &["Mission", "Settings", "RTK Base", "Link"],
 };

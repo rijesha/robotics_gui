@@ -1,15 +1,10 @@
-//! Desktop entry point: argument parsing, the embedded backend and simulator, and the
-//! scripted demo used for unattended checks.
+//! Desktop entry point: argument parsing, the embedded backend and simulator, scripted
+//! demos and recording.
 
+use crate::demo::{self, Demo};
+use crate::record::Recorder;
 use crate::App;
 use eframe::egui;
-use rgf_core::client::label;
-use rgf_core::msgs::common::Mode;
-use rgf_core::msgs::mission::MissionAction;
-use rgf_core::msgs::simctl::SimLinkFault;
-use rgf_core::reliable::TxState;
-use rgf_core::{LocalFrame, Vec2};
-use rgf_ui::station::MapTool;
 use rgf_ui::StationApp;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -20,18 +15,25 @@ usage: station [options]
   --vehicle NAME      simulated vehicle: rover6 (default), tractor, skid, boat
   --connect URL       use a backend that is already running (ws://host:9002) instead of
                       starting the built-in backend and simulator
+  --theme NAME        dark (default) or light
   --phone             open at phone size to try the mobile layout
+  --size WxH          window size in points (default 1500x950)
   --show TITLES       panels to bring to the front, comma separated (e.g. Lidar,Power)
-  --demo NAME         run a scripted scenario: survey, drive, linkloss, edit
+  --demo NAME         run a scripted walkthrough: survey, drive, linkloss, themes, phone
+  --record PATH.gif   record the window to a GIF until the demo ends, then exit
+  --fps N             frames per second for --record (default 8)
   --screenshot PATH   save a PNG of the window after --after seconds, then exit
   --after SECONDS     delay for --screenshot (default 12)";
 
 struct Args {
     vehicle: String,
     connect: Option<String>,
-    phone: bool,
+    dark: bool,
+    size: [f32; 2],
     show: Vec<String>,
     demo: Option<String>,
+    record: Option<PathBuf>,
+    fps: f64,
     screenshot: Option<PathBuf>,
     after: f64,
 }
@@ -40,9 +42,12 @@ fn parse_args() -> Args {
     let mut args = Args {
         vehicle: "rover6".into(),
         connect: None,
-        phone: false,
+        dark: true,
+        size: [1500.0, 950.0],
         show: Vec::new(),
         demo: None,
+        record: None,
+        fps: 8.0,
         screenshot: None,
         after: 12.0,
     };
@@ -56,11 +61,25 @@ fn parse_args() -> Args {
         match arg.as_str() {
             "--vehicle" => args.vehicle = value(),
             "--connect" => args.connect = Some(value()),
-            "--demo" => args.demo = Some(value()),
+            "--theme" => {
+                args.dark = match value().as_str() {
+                    "dark" => true,
+                    "light" => false,
+                    other => fail(format!("unknown theme '{other}'")),
+                }
+            }
+            "--phone" => args.size = [400.0, 800.0],
+            "--size" => {
+                let text = value();
+                let parsed = text.split_once('x').and_then(|(w, h)| Some([w.parse().ok()?, h.parse().ok()?]));
+                args.size = parsed.unwrap_or_else(|| fail(format!("--size wants WIDTHxHEIGHT, got '{text}'")));
+            }
             "--show" => args.show = value().split(',').map(str::to_owned).collect(),
+            "--demo" => args.demo = Some(value()),
+            "--record" => args.record = Some(value().into()),
+            "--fps" => args.fps = value().parse().unwrap_or_else(|_| fail("--fps needs a number".into())),
             "--screenshot" => args.screenshot = Some(value().into()),
             "--after" => args.after = value().parse().unwrap_or_else(|_| fail("--after needs a number".into())),
-            "--phone" => args.phone = true,
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -73,6 +92,12 @@ fn parse_args() -> Args {
 
 pub fn run() -> eframe::Result {
     let args = parse_args();
+    let demo = args.demo.as_deref().map(|name| {
+        demo::script(name).map(Demo::new).unwrap_or_else(|| {
+            eprintln!("unknown demo '{name}'; available: {}", demo::NAMES);
+            std::process::exit(2)
+        })
+    });
     let backend_url = match &args.connect {
         Some(url) => url.clone(),
         None => {
@@ -92,25 +117,24 @@ pub fn run() -> eframe::Result {
         }
     };
 
-    let size = if args.phone { [400.0, 800.0] } else { [1500.0, 950.0] };
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size(size).with_title("Robotics Ground Station"),
+        viewport: egui::ViewportBuilder::default().with_inner_size(args.size).with_title("Robotics Ground Station"),
         ..Default::default()
     };
     let tile_cache = std::env::temp_dir().join("rgf-tile-cache");
     let extras = Extras {
-        demo: args.demo,
+        demo,
+        recorder: args.record.map(|path| Recorder::new(path, args.fps)),
         screenshot: args.screenshot,
         after: args.after,
-        step: 0,
         requested: false,
-        script_at: 0,
+        finished_at: None,
     };
     eframe::run_native(
         "Robotics Ground Station",
         options,
         Box::new(move |cc| {
-            let mut station = StationApp::new(&cc.egui_ctx, backend_url, Some(tile_cache));
+            let mut station = StationApp::new(&cc.egui_ctx, backend_url, Some(tile_cache), args.dark);
             for title in &args.show {
                 station.workspace.show_panel(title);
             }
@@ -119,59 +143,47 @@ pub fn run() -> eframe::Result {
     )
 }
 
-/// Scripted demo and screenshot capture.
+/// Demo playback, recording and screenshot capture.
 pub struct Extras {
-    demo: Option<String>,
+    demo: Option<Demo>,
+    recorder: Option<Recorder>,
     screenshot: Option<PathBuf>,
     after: f64,
-    step: u32,
     requested: bool,
-    script_at: usize,
-}
-
-/// Pointer input for the `edit` demo, at window positions in the default desktop layout:
-/// add three waypoints on the map, drag the second, delete the first, then hold the
-/// drive stick forward.
-const EDIT_SCRIPT: &[(f64, Pointer)] = {
-    use Pointer::*;
-    &[
-        (5.0, Move(600.0, 300.0)),
-        (5.1, Left(true)),
-        (5.2, Left(false)),
-        (5.5, Move(800.0, 300.0)),
-        (5.6, Left(true)),
-        (5.7, Left(false)),
-        (6.0, Move(800.0, 500.0)),
-        (6.1, Left(true)),
-        (6.2, Left(false)),
-        (6.5, Move(800.0, 300.0)),
-        (6.6, Left(true)),
-        (6.8, Move(850.0, 275.0)),
-        (7.0, Move(900.0, 250.0)),
-        (7.2, Left(false)),
-        (7.5, Move(600.0, 300.0)),
-        (7.6, Right(true)),
-        (7.7, Right(false)),
-        (8.0, Move(83.0, 187.0)),
-        (8.1, Left(true)),
-        (8.3, Move(83.0, 150.0)),
-    ]
-};
-
-#[derive(Clone, Copy)]
-enum Pointer {
-    Move(f32, f32),
-    Left(bool),
-    Right(bool),
+    finished_at: Option<f64>,
 }
 
 impl Extras {
-    pub fn before_frame(&mut self, ctx: &egui::Context, app: &mut StationApp) {
-        if let Some(demo) = self.demo.clone() {
-            self.run_demo(&demo, app);
+    /// Feed the demo's pointer input into egui.
+    pub fn inject_input(&mut self, raw: &mut egui::RawInput, app: &mut StationApp) {
+        if let Some(demo) = &mut self.demo {
+            demo.tick(raw, app);
         }
-        let Some(path) = &self.screenshot else { return };
+    }
+
+    pub fn after_frame(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
+        if let Some(demo) = &self.demo {
+            demo.paint(ctx);
+        }
+
+        if let Some(recorder) = &mut self.recorder {
+            let demo_done = self.demo.as_ref().is_none_or(Demo::finished);
+            // Without a demo, --after bounds the recording.
+            let stop = if self.demo.is_some() { demo_done } else { now >= self.after };
+            if !stop {
+                recorder.tick(ctx, now);
+            } else if now - *self.finished_at.get_or_insert(now) > 0.6 {
+                // The short wait lets the last requested frame arrive.
+                match recorder.finish() {
+                    Ok(frames) => println!("recorded {frames} frames"),
+                    Err(err) => eprintln!("recording failed: {err}"),
+                }
+                std::process::exit(0);
+            }
+        }
+
+        let Some(path) = &self.screenshot else { return };
         if now >= self.after && !self.requested {
             self.requested = true;
             let path = path.clone();
@@ -185,104 +197,6 @@ impl Extras {
                 }
                 std::process::exit(if saved.is_ok() { 0 } else { 1 });
             });
-        }
-    }
-
-    /// Feed the `edit` demo's pointer script into egui, one event per frame.
-    pub fn inject_input(&mut self, raw: &mut egui::RawInput) {
-        if self.demo.as_deref() != Some("edit") {
-            return;
-        }
-        let now = raw.time.unwrap_or(0.0);
-        let Some(&(at, action)) = EDIT_SCRIPT.get(self.script_at) else { return };
-        if now < at {
-            return;
-        }
-        self.script_at += 1;
-        let pos = EDIT_SCRIPT[..self.script_at]
-            .iter()
-            .rev()
-            .find_map(|(_, a)| match a {
-                Pointer::Move(x, y) => Some(egui::pos2(*x, *y)),
-                _ => None,
-            })
-            .unwrap_or_default();
-        let button =
-            |button, pressed| egui::Event::PointerButton { pos, button, pressed, modifiers: Default::default() };
-        raw.events.push(match action {
-            Pointer::Move(..) => egui::Event::PointerMoved(pos),
-            Pointer::Left(pressed) => button(egui::PointerButton::Primary, pressed),
-            Pointer::Right(pressed) => button(egui::PointerButton::Secondary, pressed),
-        });
-    }
-
-    /// Each demo is a short list of steps; a step runs once its condition holds.
-    fn run_demo(&mut self, demo: &str, app: &mut StationApp) {
-        let station = &mut app.station;
-        let now = station.now;
-        let confirmed = |station: &rgf_ui::Station, l: &str| station.client.state(l) == Some(TxState::Confirmed);
-        let Some(here) = station.vehicle_pos() else { return };
-        let frame = LocalFrame::new(here);
-        match (demo, self.step) {
-            ("survey", 0) => {
-                let corners = [(-18.0, 6.0), (26.0, 4.0), (30.0, 34.0), (-14.0, 38.0)];
-                station.plan.polygon = corners.iter().map(|(x, y)| frame.to_latlon(Vec2::new(*x, *y))).collect();
-                station.plan.survey.swath_m = 6.0;
-                station.plan.survey.angle_deg = 90.0;
-                station.plan.waypoints = station.plan.survey_path();
-                station.plan.tool = MapTool::Pan;
-                let waypoints = station.plan.waypoints.clone();
-                station.client.upload_mission(&waypoints, 0.0, now);
-                station.plan.uploaded = waypoints;
-                self.step = 1;
-            }
-            ("survey", 1) if confirmed(station, label::MISSION) => {
-                station.client.mission_command(MissionAction::MISSION_START, now);
-                self.step = 2;
-            }
-            ("edit", 0) => {
-                station.client.set_mode(Mode::MANUAL, now);
-                station.plan.tool = MapTool::Waypoints;
-                self.step = 1;
-            }
-            ("edit", 1) if now > 10.0 => {
-                // Report what the scripted clicks produced, in metres east and north of the vehicle.
-                let points: Vec<String> = station
-                    .plan
-                    .waypoints
-                    .iter()
-                    .map(|p| {
-                        let v = frame.to_local(*p);
-                        format!("({:.1}, {:.1})", v.x, v.y)
-                    })
-                    .collect();
-                println!("waypoints: {}", points.join(" "));
-                println!("drive input: throttle {:.2} steer {:.2}", station.drive_input.0, station.drive_input.1);
-                println!("speed: {:.2} m/s", station.client.pose.as_ref().map_or(0.0, |p| p.speed_mps));
-                self.step = 2;
-            }
-            ("drive" | "linkloss", 0) => {
-                station.client.set_mode(Mode::MANUAL, now);
-                self.step = 1;
-            }
-            ("drive" | "linkloss", 1) if confirmed(station, label::MODE) => {
-                station.drive_input = (0.7, 0.45);
-                if demo == "linkloss" && now > 6.0 {
-                    station.client.send_tracked(label::SIM_FAULT, now, |seq| SimLinkFault {
-                        seq,
-                        loss_pct: 0,
-                        cut: true,
-                    });
-                    self.step = 2;
-                }
-            }
-            ("linkloss", 2) if confirmed(station, label::SIM_FAULT) => {
-                // With the link cut, neither of these can be confirmed.
-                station.client.set_param(0, 0.5, now);
-                station.client.set_mode(Mode::HOLD, now);
-                self.step = 3;
-            }
-            _ => {}
         }
     }
 }

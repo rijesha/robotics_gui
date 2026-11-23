@@ -44,10 +44,16 @@ impl Panel for VideoPanel {
     fn ui(&mut self, ui: &mut egui::Ui, station: &mut Station) {
         let (area, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
         let painter = ui.painter_at(area);
-        painter.rect_filled(area, 0, Color32::BLACK);
+        painter.rect_filled(area, 0, theme::of(ui).viewport);
 
         let (Some(texture), Some(video)) = (&station.video_texture, &station.client.video) else {
-            painter.text(area.center(), Align2::CENTER_CENTER, "No video", FontId::proportional(16.0), theme::DIM);
+            painter.text(
+                area.center(),
+                Align2::CENTER_CENTER,
+                "No video",
+                FontId::proportional(15.0),
+                Color32::from_gray(140),
+            );
             return;
         };
         let size = texture.size_vec2();
@@ -107,14 +113,17 @@ impl Panel for VideoPanel {
         }
 
         // Overlay switches sit on top of the picture.
-        let mut bar = ui.new_child(
-            egui::UiBuilder::new()
-                .max_rect(Rect::from_min_size(area.left_bottom() + Vec2::new(6.0, -28.0), Vec2::new(260.0, 24.0))),
-        );
-        bar.horizontal(|ui| {
-            ui.toggle_value(&mut self.show_hud, "HUD");
-            ui.toggle_value(&mut self.show_path, "Path");
-            ui.toggle_value(&mut self.show_lidar, "Lidar");
+        let p = theme::of(ui);
+        let corner = area.left_bottom() + Vec2::new(8.0, -40.0);
+        let mut bar =
+            ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(corner, Vec2::new(260.0, 32.0))));
+        egui::Frame::new().fill(p.surface.gamma_multiply(0.92)).corner_radius(8).inner_margin(3).show(&mut bar, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.toggle_value(&mut self.show_hud, "HUD").on_hover_text("Heading, speed and status");
+                ui.toggle_value(&mut self.show_path, "Path").on_hover_text("Where the wheels are about to go");
+                ui.toggle_value(&mut self.show_lidar, "Lidar").on_hover_text("Obstacles seen by the lidar");
+            });
         });
     }
 }
@@ -188,6 +197,8 @@ fn hud(painter: &egui::Painter, image: Rect, pose: &rgf_core::msgs::telemetry::P
         );
     }
     if !station.client.vehicle_alive(station.now) {
-        painter.text(image.center(), Align2::CENTER_CENTER, "LINK LOST", FontId::proportional(26.0), theme::BAD);
+        let banner = Rect::from_center_size(image.center(), Vec2::new(170.0, 40.0));
+        painter.rect_filled(banner, 6, Color32::from_black_alpha(170));
+        painter.text(image.center(), Align2::CENTER_CENTER, "LINK LOST", FontId::proportional(22.0), theme::DARK.bad);
     }
 }

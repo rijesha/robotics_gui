@@ -42,6 +42,11 @@ impl Workspace {
         }
     }
 
+    /// Titles of all panels, in registration order.
+    pub fn titles(&self) -> Vec<String> {
+        self.panels.iter().map(|p| p.title().to_owned()).collect()
+    }
+
     pub fn is_phone(ui: &egui::Ui) -> bool {
         ui.ctx().content_rect().width() < PHONE_WIDTH
     }
@@ -85,8 +90,8 @@ impl Workspace {
 fn show_panel(panel: &mut dyn Panel, ui: &mut egui::Ui, station: &mut Station) {
     if panel.padded() {
         // Fill the pane: the window behind is not guaranteed to be opaque.
-        egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(8).show(ui, |ui| {
-            egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| panel.ui(ui, station));
+        egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(10).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| panel.ui(ui, station));
         });
     } else {
         panel.ui(ui, station);
@@ -106,6 +111,18 @@ impl egui_tiles::Behavior<usize> for Behavior<'_> {
 
     fn tab_title_for_pane(&mut self, pane: &usize) -> egui::WidgetText {
         self.panels[*pane].title().into()
+    }
+
+    fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
+        30.0
+    }
+
+    fn tab_bar_color(&self, visuals: &egui::Visuals) -> egui::Color32 {
+        crate::theme::palette(visuals.dark_mode).surface
+    }
+
+    fn gap_width(&self, _style: &egui::Style) -> f32 {
+        2.0
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
@@ -151,12 +168,14 @@ fn build_tree(panels: &[Box<dyn Panel>], layout: &DesktopLayout) -> Tree<usize> 
             }
         }
     };
-    let left = column(&mut tiles, vec![left_top, left_bottom], 0.45);
+    let left = column(&mut tiles, vec![left_top, left_bottom], 0.5);
     let middle = column(&mut tiles, vec![center, extra], 0.75);
-    let right = column(&mut tiles, vec![right_top, right_bottom], 0.42);
+    let right = column(&mut tiles, vec![right_top, right_bottom], 0.36);
 
-    let columns: Vec<(TileId, f32)> =
-        [(left, 0.23), (middle, 0.5), (right, 0.27)].into_iter().filter_map(|(id, share)| Some((id?, share))).collect();
+    let columns: Vec<(TileId, f32)> = [(left, 0.25), (middle, 0.46), (right, 0.29)]
+        .into_iter()
+        .filter_map(|(id, share)| Some((id?, share)))
+        .collect();
     let mut root = Linear::new(LinearDir::Horizontal, columns.iter().map(|(id, _)| *id).collect());
     for (id, share) in &columns {
         root.shares.set_share(*id, *share);

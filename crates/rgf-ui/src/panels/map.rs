@@ -2,6 +2,7 @@
 //! what the lidar has seen.
 
 use crate::station::{MapTool, OBSTACLE_M};
+use crate::widgets::segment;
 use crate::{theme, Panel, Station};
 use egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use rgf_core::geo::body_to_local;
@@ -97,6 +98,11 @@ struct Actions {
     clear_terrain: bool,
 }
 
+fn toolbar_frame(ui: &egui::Ui) -> egui::Frame {
+    let p = theme::of(ui);
+    egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border)).corner_radius(8).inner_margin(4)
+}
+
 impl Panel for MapPanel {
     fn title(&self) -> &str {
         "Map"
@@ -115,34 +121,33 @@ impl Panel for MapPanel {
         let map = Map::new(Some(tiles), memory, lat_lon(vehicle.lat, vehicle.lon)).double_click_to_zoom(false);
         let actions = map
             .show(ui, |ui, response, projector, _memory| {
-                let painter = ui.painter().with_clip_rect(projector.map_rect());
                 let clip = projector.map_rect();
+                let painter = ui.painter().with_clip_rect(clip);
+                station.anchor("map", response);
 
-                if let Some(frame) = station.frame {
-                    let to_screen = LocalToScreen {
-                        origin: project(projector, frame.origin),
-                        px_per_m: projector.scale_pixel_per_meter(lat_lon(frame.origin.lat, frame.origin.lon)),
-                    };
+                let to_screen = station.frame.map(|frame| LocalToScreen {
+                    origin: project(projector, frame.origin),
+                    px_per_m: projector.scale_pixel_per_meter(lat_lon(frame.origin.lat, frame.origin.lon)),
+                });
+                station.map_view = to_screen.as_ref().map(|t| (t.origin, t.px_per_m));
+
+                if let (Some(frame), Some(to_screen)) = (station.frame, &to_screen) {
                     if *show_terrain || *show_obstacles {
-                        draw_terrain(&painter, clip, station, &to_screen, *show_terrain, *show_obstacles);
+                        draw_terrain(&painter, clip, station, to_screen, *show_terrain, *show_obstacles);
                     }
                     if *show_lidar {
-                        draw_lidar(&painter, clip, station, &frame, &to_screen);
+                        draw_lidar(&painter, clip, station, &frame, to_screen);
                     }
                 }
                 if *show_trail && station.trail.len() > 1 {
                     let points: Vec<Pos2> = station.trail.iter().map(|p| project(projector, *p)).collect();
-                    painter.line(points, Stroke::new(2.0, Color32::from_rgba_unmultiplied(90, 170, 255, 170)));
+                    painter.line(points, Stroke::new(2.0, theme::VEHICLE.gamma_multiply(0.7)));
                 }
 
                 draw_base(&painter, projector, station);
                 draw_mission(ui, &painter, projector, station);
-                if let Some(frame) = station.frame {
-                    let to_screen = LocalToScreen {
-                        origin: project(projector, frame.origin),
-                        px_per_m: projector.scale_pixel_per_meter(lat_lon(frame.origin.lat, frame.origin.lon)),
-                    };
-                    draw_vehicle(&painter, station, &frame, &to_screen, *show_path);
+                if let (Some(frame), Some(to_screen)) = (station.frame, &to_screen) {
+                    draw_vehicle(&painter, station, &frame, to_screen, *show_path);
                 }
 
                 // Clicks on the map itself add points in the editing tools.
@@ -158,31 +163,57 @@ impl Panel for MapPanel {
                 }
 
                 draw_scale_and_credit(&painter, projector, clip);
+                let tool_hint = match station.plan.tool {
+                    MapTool::Pan => None,
+                    MapTool::Waypoints => Some("Click to add a waypoint  ·  drag to move  ·  right-click to remove"),
+                    MapTool::Polygon => {
+                        Some("Click to add a corner of the area  ·  drag to move  ·  right-click to remove")
+                    }
+                };
+                if let Some(text) = tool_hint {
+                    let galley = painter.layout_no_wrap(text.to_owned(), FontId::proportional(12.5), Color32::WHITE);
+                    let rect = Rect::from_center_size(clip.center_bottom() - Vec2::new(0.0, 46.0), galley.size());
+                    if rect.width() + 24.0 < clip.width() {
+                        painter.rect_filled(rect.expand2(Vec2::new(10.0, 5.0)), 12, Color32::from_black_alpha(190));
+                        painter.galley(rect.min, galley, Color32::WHITE);
+                    }
+                }
 
                 let mut actions = Actions::default();
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    // Wraps onto a second row on narrow screens.
-                    ui.set_max_width(clip.width() - 24.0);
-                    ui.horizontal_wrapped(|ui| {
-                        let tool = &mut station.plan.tool;
-                        ui.selectable_value(tool, MapTool::Pan, "Pan");
-                        ui.selectable_value(tool, MapTool::Waypoints, "Waypoints")
-                            .on_hover_text("Click to add, drag to move, right-click to delete");
-                        ui.selectable_value(tool, MapTool::Polygon, "Survey area")
-                            .on_hover_text("Click to add corners, drag to move, right-click to delete");
-                        ui.separator();
-                        if ui.selectable_label(following, "Follow").clicked() {
-                            actions.follow = true;
-                        }
-                        actions.zoom_in = ui.button("+").clicked();
-                        actions.zoom_out = ui.button("−").clicked();
-                        ui.menu_button("Layers", |ui| {
-                            ui.checkbox(show_path, "Expected path");
-                            ui.checkbox(show_trail, "Trail");
-                            ui.checkbox(show_lidar, "Lidar returns");
-                            ui.checkbox(show_obstacles, "Obstacles");
-                            ui.checkbox(show_terrain, "Terrain height");
-                            actions.clear_terrain = ui.button("Clear lidar map").clicked();
+                let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(clip.shrink(8.0)));
+                bar.horizontal_wrapped(|ui| {
+                    toolbar_frame(ui).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            let tool = &mut station.plan.tool;
+                            let pan = segment(ui, tool, MapTool::Pan, "Pan").on_hover_text("Drag to move the map");
+                            let waypoints = segment(ui, tool, MapTool::Waypoints, "Waypoints")
+                                .on_hover_text("Add and edit mission waypoints");
+                            let survey = segment(ui, tool, MapTool::Polygon, "Survey area")
+                                .on_hover_text("Outline an area to cover");
+                            station.anchor("tool.pan", &pan);
+                            station.anchor("tool.waypoints", &waypoints);
+                            station.anchor("tool.survey", &survey);
+                        });
+                    });
+                    toolbar_frame(ui).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            let follow =
+                                ui.selectable_label(following, "Follow").on_hover_text("Keep the vehicle centred");
+                            station.anchor("map.follow", &follow);
+                            actions.follow = follow.clicked();
+                            actions.zoom_in = ui.button("+").on_hover_text("Zoom in").clicked();
+                            actions.zoom_out = ui.button("−").on_hover_text("Zoom out").clicked();
+                            ui.menu_button("Layers", |ui| {
+                                ui.checkbox(show_path, "Expected path");
+                                ui.checkbox(show_trail, "Trail");
+                                ui.checkbox(show_lidar, "Lidar returns");
+                                ui.checkbox(show_obstacles, "Obstacles");
+                                ui.checkbox(show_terrain, "Terrain height");
+                                ui.separator();
+                                actions.clear_terrain = ui.button("Clear lidar map").clicked();
+                            });
                         });
                     });
                 });
@@ -234,14 +265,14 @@ fn draw_terrain(
             }
         } else if heights {
             let c = theme::ramp((cell.min_h - lo) / span);
-            mesh.add_colored_rect(rect, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 110));
+            mesh.add_colored_rect(rect, Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 95));
         }
     }
     painter.add(Shape::mesh(mesh));
 
     if heights {
         // Legend for the height colours.
-        let bar = Rect::from_min_size(clip.right_top() + Vec2::new(-26.0, 48.0), Vec2::new(12.0, 110.0));
+        let bar = Rect::from_min_size(clip.right_top() + Vec2::new(-26.0, 56.0), Vec2::new(12.0, 110.0));
         let mut legend = Mesh::default();
         for i in 0..22 {
             let t = i as f32 / 21.0;
@@ -318,18 +349,16 @@ fn draw_vehicle(
 
     let (length, width) = station.client.info.as_ref().map_or((1.0, 0.7), |i| (i.length_m as f64, i.width_m as f64));
     // Never draw the vehicle smaller than a fingertip, however far out the map is zoomed.
-    let scale = (18.0 / (length as f32 * to_screen.px_per_m)).max(1.0) as f64;
+    let scale = (22.0 / (length as f32 * to_screen.px_per_m)).max(1.0) as f64;
     let (half_l, half_w) = (length * scale / 2.0, width * scale / 2.0);
-    let outline = vec![
-        at(half_l, 0.0),
-        at(half_l * 0.45, half_w),
-        at(-half_l, half_w),
-        at(-half_l, -half_w),
-        at(half_l * 0.45, -half_w),
-    ];
     let alive = station.client.vehicle_alive(station.now);
-    let fill = if alive { theme::ACCENT } else { theme::DIM };
-    painter.add(Shape::convex_polygon(outline, fill.gamma_multiply(0.85), Stroke::new(1.5, Color32::WHITE)));
+    let fill = if alive { theme::VEHICLE } else { Color32::from_gray(150) };
+    // An arrowhead: nose, right tail, notch, left tail.
+    let (nose, right, notch, left) =
+        (at(half_l, 0.0), at(-half_l, half_w), at(-half_l * 0.45, 0.0), at(-half_l, -half_w));
+    painter.add(Shape::convex_polygon(vec![nose, right, notch], fill, Stroke::NONE));
+    painter.add(Shape::convex_polygon(vec![nose, notch, left], fill, Stroke::NONE));
+    painter.add(Shape::closed_line(vec![nose, right, notch, left], Stroke::new(2.0, Color32::WHITE)));
 }
 
 fn draw_base(painter: &egui::Painter, projector: &Projector, station: &Station) {
@@ -338,7 +367,7 @@ fn draw_base(painter: &egui::Painter, projector: &Projector, station: &Station) 
         return;
     }
     let at = project(projector, LatLon::new(base.lat, base.lon));
-    let color = if base.mode == BaseMode::BASE_FIXED { theme::OK } else { theme::WARN };
+    let color = if base.mode == BaseMode::BASE_FIXED { theme::DARK.ok } else { theme::DARK.warn };
     let triangle = vec![at + Vec2::new(0.0, -10.0), at + Vec2::new(9.0, 7.0), at + Vec2::new(-9.0, 7.0)];
     painter.add(Shape::convex_polygon(triangle, color, Stroke::new(1.5, Color32::BLACK)));
     painter.text(at + Vec2::new(0.0, 10.0), Align2::CENTER_TOP, "RTK base", FontId::proportional(11.0), Color32::WHITE);
@@ -350,11 +379,11 @@ fn draw_mission(ui: &mut egui::Ui, painter: &egui::Painter, projector: &Projecto
     // What the vehicle is executing.
     if !station.plan.uploaded.is_empty() {
         let points: Vec<Pos2> = station.plan.uploaded.iter().map(|p| project(projector, *p)).collect();
-        painter.line(points.clone(), Stroke::new(5.0, theme::OK.gamma_multiply(0.55)));
+        painter.line(points.clone(), Stroke::new(5.0, theme::DARK.ok.gamma_multiply(0.55)));
         if let Some(nav) = &station.client.nav {
             if nav.state == NavState::NAV_RUNNING || nav.state == NavState::NAV_PAUSED {
                 if let Some(target) = points.get(nav.active_wp as usize) {
-                    painter.circle_stroke(*target, 13.0, Stroke::new(2.5, theme::OK));
+                    painter.circle_stroke(*target, 13.0, Stroke::new(2.5, theme::DARK.ok));
                 }
             }
         }

@@ -15,15 +15,53 @@ missions, verified settings) and AgOpenGPS (field coverage).
 - [struct-frame](https://github.com/mylonics/struct-frame) messages on every link
 - One UI codebase for desktop, browser and phone
 
-![Desktop layout running a survey on the six-wheel rover](docs/desktop.png)
+| Dark | Light |
+|---|---|
+| ![Dark theme: six-wheel rover running a survey](docs/desktop-dark.png) | ![Light theme: boat in manual control](docs/desktop-light.png) |
+
+## See it in use
+
+These clips are recorded from the real application by its built-in demo scripts, which
+drive the UI with pointer input (the cursor and captions are drawn by the demo).
+
+**Plan and run a survey** (tractor, dark theme): outline an area, set the pass spacing,
+upload, start.
+
+![Survey walkthrough](docs/media/survey.gif)
+
+**Manual driving and motor test** (six-wheel rover, light theme): joystick, expected
+path, per-motor sliders, power.
+
+![Driving walkthrough](docs/media/drive-light.gif)
+
+**Verified settings** (boat): a change that is confirmed, one that shows *Not sent* with
+the link cut, and the retry.
+
+![Verified settings walkthrough](docs/media/verified-settings.gif)
+
+**Switching theme** (skid steer):
+
+![Theme walkthrough](docs/media/themes.gif)
+
+**Phone layout** (skid steer, light theme):
+
+![Phone walkthrough](docs/media/phone.gif)
 
 ## Run it
 
 ```sh
 cargo run -p station                      # desktop app with built-in backend and simulator
 cargo run -p station -- --vehicle boat    # rover6 (default), tractor, skid, boat
+cargo run -p station -- --theme light     # dark is the default; the sun/moon button switches
 cargo run -p station -- --phone           # try the phone layout in a small window
-cargo run -p station -- --demo survey     # scripted scenarios: survey, drive, linkloss
+cargo run -p station -- --demo survey     # walkthroughs: survey, drive, linkloss, themes, phone
+```
+
+To re-record a clip (release build recommended):
+
+```sh
+cargo run --release -p station -- --size 1180x800 --vehicle tractor --demo survey \
+    --fps 6 --record docs/media/survey.gif
 ```
 
 The vehicle can also be switched from the **Link** panel while running.
@@ -45,7 +83,7 @@ cargo run -p station -- --connect ws://HOST:9002   # or the desktop UI against t
 ```
 
 The web UI connects to port 9002 on the host that served it; override with
-`?backend=ws://host:port`.
+`?backend=ws://host:port`; add `?theme=light` to start in the light theme.
 
 ## Using it
 
@@ -61,6 +99,10 @@ The web UI connects to port 9002 on the host that served it; override with
 | Video | Camera with heading tape, expected wheel tracks and lidar obstacle markers. |
 | Lidar | Orbitable 3D point cloud coloured by height. |
 | Link | Backend and vehicle link state; simulator vehicle picker and link-fault injection. |
+
+The status bar shows mode, GNSS fix, battery and speed, and holds the theme switch and the
+STOP button. A banner appears under it when the backend or vehicle link is lost or the
+emergency stop is engaged.
 
 Panels can be dragged, split and tabbed. Below 700 px wide the app switches to one panel
 at a time with a tab bar, and puts a joystick over the map in Manual mode.
@@ -124,6 +166,9 @@ let mut panels = rgf_ui::panels::all(&ctx, None);
 panels.push(Box::new(Depth));
 let workspace = rgf_ui::Workspace::new(panels, rgf_ui::panels::DEFAULT_LAYOUT);
 ```
+
+Take colours from `rgf_ui::theme::of(ui)` and build with the helpers in `rgf_ui::widgets`
+(`card`, `chip`, `stats`, `meter`, `primary_button`) so a panel follows both themes.
 
 `station.client` holds the latest telemetry and sends commands;
 `widgets::tx_status(ui, station, label)` shows the delivery state of anything sent with

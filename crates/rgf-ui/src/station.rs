@@ -11,7 +11,7 @@ use rgf_core::msgs::control::{DriveCommand, MotorCommand};
 use rgf_core::survey::{self, SurveyParams};
 use rgf_core::terrain::TerrainGrid;
 use rgf_core::{Client, Decoder, LatLon, LocalFrame, Message, Vec2};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 const TRAIL_POINTS: usize = 2000;
 const HISTORY_POINTS: usize = 600;
@@ -99,6 +99,12 @@ pub struct Station {
 
     pub video_texture: Option<TextureHandle>,
 
+    /// Screen rectangles of named controls, refreshed every frame. Guided tours and
+    /// scripted demos use these to find what to point at.
+    pub anchors: HashMap<String, egui::Rect>,
+    /// Where the map currently draws the local frame's origin, and its pixels per metre.
+    pub map_view: Option<(egui::Pos2, f32)>,
+
     seen_epoch: u32,
     seen_lidar: u32,
     seen_video: u32,
@@ -127,11 +133,21 @@ impl Station {
             motor_test: Vec::new(),
             param_edits: BTreeMap::new(),
             video_texture: None,
+            anchors: HashMap::new(),
+            map_view: None,
             seen_epoch: 0,
             seen_lidar: 0,
             seen_video: 0,
             next_stream: 0.0,
             next_param_request: 0.0,
+        }
+    }
+
+    /// Record where a named control is on screen. Controls scrolled or clipped out of
+    /// view are left out, so an anchor that exists can be pointed at.
+    pub fn anchor(&mut self, name: impl Into<String>, response: &egui::Response) {
+        if response.interact_rect.contains(response.rect.center()) {
+            self.anchors.insert(name.into(), response.rect);
         }
     }
 
@@ -156,6 +172,8 @@ impl Station {
     pub fn update(&mut self, ctx: &egui::Context) {
         self.now = ctx.input(|i| i.time);
         let now = self.now;
+        // Only controls laid out this frame count as present.
+        self.anchors.clear();
 
         for bytes in self.link.poll(now, ctx) {
             for msg in self.decoder.feed(&bytes) {
