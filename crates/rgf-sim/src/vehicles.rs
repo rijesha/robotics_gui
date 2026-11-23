@@ -32,6 +32,8 @@ pub struct Spec {
     pub battery_wh: f64,
     /// Current one drive motor or thruster draws flat out against a stall.
     pub stall_current_a: f64,
+    /// Torque constant of the drive motors or thrusters at the output shaft.
+    pub torque_nm_per_a: f64,
     pub actuators: Vec<ActuatorSpec>,
 }
 
@@ -56,6 +58,7 @@ pub fn spec(vehicle_type: VehicleType) -> Spec {
             battery_v: 24.0,
             battery_wh: 480.0,
             stall_current_a: 12.0,
+            torque_nm_per_a: 0.5,
             actuators: vec![
                 act("Drive FL", DRIVE, 0.5, -0.4),
                 act("Drive FR", DRIVE, 0.5, 0.4),
@@ -83,6 +86,7 @@ pub fn spec(vehicle_type: VehicleType) -> Spec {
             battery_v: 48.0,
             battery_wh: 6000.0,
             stall_current_a: 90.0,
+            torque_nm_per_a: 2.0,
             actuators: vec![
                 act("Drive RL", DRIVE, -1.2, -0.8),
                 act("Drive RR", DRIVE, -1.2, 0.8),
@@ -103,6 +107,7 @@ pub fn spec(vehicle_type: VehicleType) -> Spec {
             battery_v: 24.0,
             battery_wh: 360.0,
             stall_current_a: 15.0,
+            torque_nm_per_a: 0.6,
             actuators: vec![
                 act("Drive FL", DRIVE, 0.3, -0.35),
                 act("Drive FR", DRIVE, 0.3, 0.35),
@@ -124,6 +129,7 @@ pub fn spec(vehicle_type: VehicleType) -> Spec {
             battery_v: 24.0,
             battery_wh: 1200.0,
             stall_current_a: 30.0,
+            torque_nm_per_a: 0.2,
             actuators: vec![
                 act("Port prop", THRUSTER, -1.1, -0.4),
                 act("Starboard prop", THRUSTER, -1.1, 0.4),
@@ -143,6 +149,8 @@ pub struct Actuator {
     pub output: f64,
     pub rpm: f64,
     pub current_a: f64,
+    /// Shaft torque, signed in the direction it pushes.
+    pub torque_nm: f64,
     pub temp_c: f64,
     pub faults: u8,
 }
@@ -195,6 +203,18 @@ fn differential(throttle: f64, steer: f64) -> (f64, f64) {
     (left / scale, right / scale)
 }
 
+/// Like `signum`, but zero stays zero.
+fn sign(value: f64) -> f64 {
+    if value.abs() < 1e-9 {
+        0.0
+    } else {
+        value.signum()
+    }
+}
+
+/// Torque constant of the steering and rudder servos.
+const STEER_TORQUE_NM_PER_A: f64 = 4.0;
+
 fn approach(value: f64, target: f64, max_step: f64) -> f64 {
     value + (target - value).clamp(-max_step, max_step)
 }
@@ -212,19 +232,27 @@ pub fn step(spec: &Spec, acts: &mut [Actuator], body: &mut Body, slope: f64, dt:
                 let effort = (target - a.output) / spec.max_speed_mps;
                 let rolling = 0.22 * a.output.abs() / spec.max_speed_mps;
                 let climbing = 1.5 * slope * a.output.signum() * (a.output.abs() / spec.max_speed_mps).min(1.0);
-                a.current_a = 0.25 + spec.stall_current_a * (effort.abs() * 0.9 + rolling + climbing).clamp(0.0, 1.0);
+                let load = (effort.abs() * 0.9 + rolling + climbing).clamp(0.0, 1.0);
+                a.current_a = 0.25 + spec.stall_current_a * load;
+                // Accelerating pushes the way the speed is changing; holding speed pushes against drag.
+                let push = effort * 0.9 + (rolling + climbing) * a.output.signum();
+                a.torque_nm = spec.torque_nm_per_a * spec.stall_current_a * load * sign(push);
             }
             ActuatorKind::THRUSTER => {
                 a.output += (cmd - a.output) * (dt / 0.5).min(1.0);
                 a.rpm = a.output * 3200.0;
-                a.current_a = 0.2 + spec.stall_current_a * a.output.abs().powf(1.5);
+                let load = a.output.abs().powf(1.5);
+                a.current_a = 0.2 + spec.stall_current_a * load;
+                a.torque_nm = spec.torque_nm_per_a * spec.stall_current_a * load * sign(a.output);
             }
             ActuatorKind::STEER | ActuatorKind::RUDDER => {
                 let target = cmd * spec.max_steer_rad;
                 let before = a.output;
                 a.output = approach(a.output, target, 0.9 * dt);
                 a.rpm = 0.0;
-                a.current_a = if (a.output - before).abs() > 1e-6 { 1.6 } else { 0.12 };
+                let moved = a.output - before;
+                a.current_a = if moved.abs() > 1e-6 { 1.6 } else { 0.12 };
+                a.torque_nm = STEER_TORQUE_NM_PER_A * (a.current_a - 0.12) * sign(moved);
             }
         }
         // Heating settles at about 90 C when held at stall current.
@@ -335,6 +363,19 @@ mod tests {
             assert_eq!(mix(&spec, 0.8, 0.2).len(), spec.actuators.len());
             assert!(acts[0].current_a > 1.0 && acts[0].rpm.abs() > 10.0, "{vt:?} {:?}", acts[0]);
             assert!(acts[0].temp_c > 25.0);
+        }
+    }
+
+    #[test]
+    fn torque_follows_current_and_direction() {
+        for vt in ALL {
+            let (spec, _, forward) = drive(vt, 0.8, 0.0, 5.0);
+            let (_, _, reverse) = drive(vt, -0.8, 0.0, 5.0);
+            assert!(forward[0].torque_nm > 0.0 && reverse[0].torque_nm < 0.0, "{vt:?} {:?}", forward[0]);
+            let expected = spec.torque_nm_per_a * (forward[0].current_a - 0.25);
+            assert!((forward[0].torque_nm - expected).abs() < 0.05 * expected + 0.05, "{vt:?} {:?}", forward[0]);
+            let (_, _, idle) = drive(vt, 0.0, 0.0, 1.0);
+            assert_eq!(idle[0].torque_nm, 0.0, "{vt:?}");
         }
     }
 }

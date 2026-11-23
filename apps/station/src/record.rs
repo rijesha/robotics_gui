@@ -49,8 +49,9 @@ impl Recorder {
     /// Encode everything captured so far. Returns the number of frames written.
     pub fn finish(&self) -> Result<usize, String> {
         let frames = std::mem::take(&mut *self.frames.lock().unwrap());
-        let Some(first) = frames.first() else { return Err("no frames were captured".into()) };
-        let (width, height) = (first.width, first.height);
+        // The window can settle to its size a frame or two in, so go by the last frame.
+        let Some(last) = frames.last() else { return Err("no frames were captured".into()) };
+        let (width, height) = (last.width, last.height);
         // A resize mid-recording would break the frame-to-frame comparison.
         let frames: Vec<&Captured> = frames.iter().filter(|f| f.width == width && f.height == height).collect();
         encode(&self.path, &frames, width, height, (self.period * 100.0).round() as u16).map_err(|e| e.to_string())?;

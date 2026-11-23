@@ -46,6 +46,22 @@ pub fn drive_controls(ui: &mut egui::Ui, station: &mut Station, size: f32) {
     station.drive_input = if from_stick { (stick_y, stick_x) } else { (key_throttle, key_steer) };
 }
 
+/// One button per mode, the current one highlighted.
+pub fn mode_row(ui: &mut egui::Ui, station: &mut Station) {
+    let current = station.client.mode();
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (mode, name, about) in MODES {
+            let response = ui.selectable_label(current == Some(mode), name).on_hover_text(about);
+            station.anchor(format!("mode.{name}"), &response);
+            if response.clicked() {
+                let now = station.now;
+                station.client.set_mode(mode, now);
+            }
+        }
+    });
+}
+
 /// Bar centred on zero for a -1..1 value.
 fn signed_bar(ui: &mut egui::Ui, label_text: &str, value: f32) {
     let p = theme::of(ui);
@@ -70,16 +86,7 @@ impl Panel for DrivePanel {
     fn ui(&mut self, ui: &mut egui::Ui, station: &mut Station) {
         let current = station.client.mode();
         card(ui, "Mode", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                for (mode, name, about) in MODES {
-                    let response = ui.selectable_label(current == Some(mode), name).on_hover_text(about);
-                    station.anchor(format!("mode.{name}"), &response);
-                    if response.clicked() {
-                        station.client.set_mode(mode, station.now);
-                    }
-                }
-            });
+            mode_row(ui, station);
             if tx_visible(station, label::MODE) {
                 ui.horizontal(|ui| tx_status(ui, station, label::MODE));
             }

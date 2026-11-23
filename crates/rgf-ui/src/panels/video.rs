@@ -32,6 +32,16 @@ impl Camera {
     }
 }
 
+/// The camera picture alone, `width` wide. Returns false when there is no picture yet.
+pub fn picture(ui: &mut egui::Ui, station: &Station, width: f32) -> bool {
+    let Some(texture) = &station.video_texture else { return false };
+    let size = texture.size_vec2();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, width * size.y / size.x), Sense::hover());
+    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    ui.painter().with_clip_rect(rect).image(texture.id(), rect, uv, Color32::WHITE);
+    true
+}
+
 impl Panel for VideoPanel {
     fn title(&self) -> &str {
         "Video"

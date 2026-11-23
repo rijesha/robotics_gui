@@ -1,13 +1,16 @@
-//! Everything the panels share: the link, what the vehicle last said, what the operator
-//! is planning, and the histories and maps built up from telemetry.
+//! Everything the panels share: the link, and for each vehicle what it last said, what
+//! the operator is planning, and the histories and maps built up from telemetry.
 
 use crate::link::Link;
 use egui::TextureHandle;
+use rgf_core::codec::str_from;
+use rgf_core::envelope::{self, VehicleId, SHARED};
 use rgf_core::geo::body_to_local;
 use rgf_core::kinematics::{predict_path, PathInput, PredictedPath};
 use rgf_core::lidar;
 use rgf_core::msgs::common::Mode;
 use rgf_core::msgs::control::{DriveCommand, MotorCommand};
+use rgf_core::msgs::telemetry::MotorStatus;
 use rgf_core::survey::{self, SurveyParams};
 use rgf_core::terrain::TerrainGrid;
 use rgf_core::{Client, Decoder, LatLon, LocalFrame, Message, Vec2};
@@ -64,18 +67,45 @@ impl MissionPlan {
     }
 }
 
+/// How many samples of each motor reading are kept: 30 s at the usual 5 Hz.
+const MOTOR_HISTORY_POINTS: usize = 150;
+
 /// Per-actuator history for the motors panel.
 #[derive(Default, Clone)]
 pub struct MotorHistory {
     pub current_a: VecDeque<f32>,
+    pub torque_nm: VecDeque<f32>,
+    pub rpm: VecDeque<f32>,
+    pub temp_c: VecDeque<f32>,
+    /// Steering and rudder angle; zero for motors that spin.
+    pub position_rad: VecDeque<f32>,
 }
 
-pub struct Station {
+impl MotorHistory {
+    fn push(&mut self, motor: &MotorStatus) {
+        let readings = [
+            (&mut self.current_a, motor.current_a),
+            (&mut self.torque_nm, motor.torque_nm),
+            (&mut self.rpm, motor.rpm),
+            (&mut self.temp_c, motor.temp_c),
+            (&mut self.position_rad, motor.position_rad),
+        ];
+        for (series, value) in readings {
+            series.push_back(value);
+            if series.len() > MOTOR_HISTORY_POINTS {
+                series.pop_front();
+            }
+        }
+    }
+}
+
+/// One vehicle: what it last said, what the operator is planning for it, and the
+/// histories and maps built up from its telemetry.
+pub struct Vehicle {
+    /// The backend's number for this vehicle. `None` until the first vehicle is heard from.
+    pub id: Option<VehicleId>,
     pub client: Client,
-    pub link: Link,
     decoder: Decoder,
-    /// Seconds since the app started.
-    pub now: f64,
 
     /// Local frame for map overlays, anchored where the vehicle was first seen.
     pub frame: Option<LocalFrame>,
@@ -99,28 +129,18 @@ pub struct Station {
 
     pub video_texture: Option<TextureHandle>,
 
-    /// Screen rectangles of named controls, refreshed every frame. Guided tours and
-    /// scripted demos use these to find what to point at.
-    pub anchors: HashMap<String, egui::Rect>,
-    /// Where the map currently draws the local frame's origin, and its pixels per metre.
-    pub map_view: Option<(egui::Pos2, f32)>,
-
     seen_epoch: u32,
     seen_lidar: u32,
     seen_video: u32,
-    next_stream: f64,
     next_param_request: f64,
 }
 
-impl Station {
-    pub fn new(url: impl Into<String>) -> Self {
-        // Start numbering somewhere random so two UIs on one backend rarely share numbers.
-        let first_seq = (run_seed() % 60_000) as u16 + 1;
+impl Vehicle {
+    fn new(id: Option<VehicleId>, first_seq: u16) -> Self {
         Self {
+            id,
             client: Client::new(first_seq),
-            link: Link::new(url),
             decoder: Decoder::new(),
-            now: 0.0,
             frame: None,
             trail: VecDeque::new(),
             terrain: TerrainGrid::new(TERRAIN_CELL_M),
@@ -133,21 +153,19 @@ impl Station {
             motor_test: Vec::new(),
             param_edits: BTreeMap::new(),
             video_texture: None,
-            anchors: HashMap::new(),
-            map_view: None,
             seen_epoch: 0,
             seen_lidar: 0,
             seen_video: 0,
-            next_stream: 0.0,
             next_param_request: 0.0,
         }
     }
 
-    /// Record where a named control is on screen. Controls scrolled or clipped out of
-    /// view are left out, so an anchor that exists can be pointed at.
-    pub fn anchor(&mut self, name: impl Into<String>, response: &egui::Response) {
-        if response.interact_rect.contains(response.rect.center()) {
-            self.anchors.insert(name.into(), response.rect);
+    /// What the vehicle calls itself, or a numbered stand-in until it has said.
+    pub fn name(&self) -> String {
+        match (&self.client.info, self.id) {
+            (Some(info), _) => str_from(&info.name),
+            (None, Some(id)) => format!("Vehicle {}", id as u32 + 1),
+            (None, None) => "No vehicle".to_owned(),
         }
     }
 
@@ -168,30 +186,20 @@ impl Station {
         Some(predict_path(&input, PATH_HORIZON_S))
     }
 
-    /// Run once per frame before drawing: receive, update histories, send.
-    pub fn update(&mut self, ctx: &egui::Context) {
-        self.now = ctx.input(|i| i.time);
-        let now = self.now;
-        // Only controls laid out this frame count as present.
-        self.anchors.clear();
-
-        for bytes in self.link.poll(now, ctx) {
-            for msg in self.decoder.feed(&bytes) {
-                self.client.handle(&msg, now);
-                self.observe(&msg);
-            }
-        }
+    /// Per-frame upkeep after messages have been handled. Video is decoded only when
+    /// `show_video`, since only the selected vehicle's picture is on screen.
+    fn update(&mut self, now: f64, link_opened: bool, show_video: bool, ctx: &egui::Context) {
         self.client.poll(now);
 
         if self.client.vehicle_epoch != self.seen_epoch {
             self.seen_epoch = self.client.vehicle_epoch;
-            self.reset_vehicle_views();
+            self.reset_vehicle_views(now);
         }
         if self.client.lidar_count != self.seen_lidar {
             self.seen_lidar = self.client.lidar_count;
             self.ingest_lidar();
         }
-        if self.client.video_count != self.seen_video {
+        if show_video && self.client.video_count != self.seen_video {
             self.seen_video = self.client.video_count;
             self.decode_video(ctx);
         }
@@ -201,23 +209,13 @@ impl Station {
 
         // Settings are fetched as soon as there is a vehicle to ask, and again until they all arrive.
         let incomplete = self.client.params.is_empty() || self.client.params.len() < self.client.param_count as usize;
-        if self.link.take_opened() {
+        if link_opened {
             self.next_param_request = now;
         }
         if incomplete && self.client.vehicle_alive(now) && now >= self.next_param_request {
             self.next_param_request = now + 4.0;
             self.client.request_params(now);
         }
-
-        if now >= self.next_stream {
-            self.next_stream = now + STREAM_PERIOD_S;
-            self.stream_commands();
-        }
-
-        for frame in self.client.drain() {
-            self.link.send(frame);
-        }
-        self.client.tx.prune();
     }
 
     /// Streamed commands go out continuously while their mode is active; the vehicle
@@ -240,7 +238,13 @@ impl Station {
         }
     }
 
-    fn observe(&mut self, msg: &Message) {
+    /// Nothing the operator was holding may carry over to when this vehicle is selected again.
+    fn release_controls(&mut self) {
+        self.drive_input = (0.0, 0.0);
+        self.motor_test.iter_mut().for_each(|v| *v = 0.0);
+    }
+
+    fn observe(&mut self, msg: &Message, now: f64) {
         match msg {
             Message::Pose(pose) => {
                 let here = LatLon::new(pose.lat, pose.lon);
@@ -254,24 +258,21 @@ impl Station {
                 }
             }
             Message::PowerStatus(power) => {
-                self.power_history.push_back([self.now, power.power_w as f64, power.voltage_v as f64]);
+                self.power_history.push_back([now, power.power_w as f64, power.voltage_v as f64]);
                 if self.power_history.len() > HISTORY_POINTS {
                     self.power_history.pop_front();
                 }
             }
             Message::MotorStatus(motor) => {
                 if let Some(history) = self.motor_history.get_mut(motor.index as usize) {
-                    history.current_a.push_back(motor.current_a);
-                    if history.current_a.len() > 150 {
-                        history.current_a.pop_front();
-                    }
+                    history.push(motor);
                 }
             }
             _ => {}
         }
     }
 
-    fn reset_vehicle_views(&mut self) {
+    fn reset_vehicle_views(&mut self, now: f64) {
         self.frame = None;
         self.trail.clear();
         self.terrain.clear();
@@ -283,7 +284,7 @@ impl Station {
         self.param_edits.clear();
         self.plan = MissionPlan { survey: self.plan.survey, ..Default::default() };
         self.video_texture = None;
-        self.next_param_request = self.now + 0.5;
+        self.next_param_request = now + 0.5;
     }
 
     /// Fold the newest scan into the terrain map at the vehicle's reported pose.
@@ -324,7 +325,181 @@ impl Station {
         let image = egui::ColorImage::from_rgb(size, rgb.as_raw());
         match &mut self.video_texture {
             Some(texture) => texture.set(image, egui::TextureOptions::LINEAR),
-            None => self.video_texture = Some(ctx.load_texture("video", image, egui::TextureOptions::LINEAR)),
+            None => {
+                let name = format!("video-{}", self.id.unwrap_or(SHARED));
+                self.video_texture = Some(ctx.load_texture(name, image, egui::TextureOptions::LINEAR));
+            }
+        }
+    }
+}
+
+/// Everything the panels share. It dereferences to the selected [`Vehicle`], so a panel
+/// reads `station.client` or `station.plan` and shows whichever vehicle is selected.
+pub struct Station {
+    pub link: Link,
+    /// Seconds since the app started.
+    pub now: f64,
+
+    /// Screen rectangles of named controls, refreshed every frame. Guided tours and
+    /// scripted demos use these to find what to point at.
+    pub anchors: HashMap<String, egui::Rect>,
+    /// Where the map currently draws the selected vehicle's local frame origin, and its
+    /// pixels per metre.
+    pub map_view: Option<(egui::Pos2, f32)>,
+
+    /// Ordered by id; never empty, so there is always a selected vehicle to show.
+    vehicles: Vec<Vehicle>,
+    active: usize,
+    /// Whether the operator has picked a vehicle. Until then the first in the list is shown.
+    chosen: bool,
+    /// Base-station messages, which belong to no one vehicle.
+    shared_decoder: Decoder,
+    first_seq: u16,
+    next_stream: f64,
+}
+
+impl std::ops::Deref for Station {
+    type Target = Vehicle;
+    fn deref(&self) -> &Vehicle {
+        &self.vehicles[self.active]
+    }
+}
+
+impl std::ops::DerefMut for Station {
+    fn deref_mut(&mut self) -> &mut Vehicle {
+        &mut self.vehicles[self.active]
+    }
+}
+
+impl Station {
+    pub fn new(url: impl Into<String>) -> Self {
+        // Start numbering somewhere random so two UIs on one backend rarely share numbers.
+        let first_seq = (run_seed() % 60_000) as u16 + 1;
+        Self {
+            link: Link::new(url),
+            now: 0.0,
+            anchors: HashMap::new(),
+            map_view: None,
+            vehicles: vec![Vehicle::new(None, first_seq)],
+            active: 0,
+            chosen: false,
+            shared_decoder: Decoder::new(),
+            first_seq,
+            next_stream: 0.0,
+        }
+    }
+
+    /// Record where a named control is on screen. Controls scrolled or clipped out of
+    /// view are left out, so an anchor that exists can be pointed at.
+    pub fn anchor(&mut self, name: impl Into<String>, response: &egui::Response) {
+        if response.interact_rect.contains(response.rect.center()) {
+            self.anchors.insert(name.into(), response.rect);
+        }
+    }
+
+    /// Every vehicle heard from so far, in id order.
+    pub fn vehicles(&self) -> &[Vehicle] {
+        &self.vehicles
+    }
+
+    /// Position of the selected vehicle in [`Station::vehicles`].
+    pub fn active_index(&self) -> usize {
+        self.active
+    }
+
+    /// Make another vehicle the one the panels show and the controls drive.
+    pub fn select(&mut self, index: usize) {
+        if index >= self.vehicles.len() {
+            return;
+        }
+        self.chosen = true;
+        if index == self.active {
+            return;
+        }
+        self.vehicles[self.active].release_controls();
+        self.active = index;
+        let vehicle = &mut self.vehicles[index];
+        vehicle.release_controls();
+        // Its picture was not being decoded while it was in the background.
+        vehicle.seen_video = vehicle.client.video_count.wrapping_sub(1);
+    }
+
+    /// Whether more than one vehicle has been heard from.
+    pub fn is_fleet(&self) -> bool {
+        self.vehicles.len() > 1
+    }
+
+    /// Emergency-stop every vehicle.
+    pub fn stop_all(&mut self) {
+        let now = self.now;
+        for vehicle in self.vehicles.iter_mut().filter(|v| v.id.is_some()) {
+            vehicle.client.set_estop(true, now);
+        }
+    }
+
+    /// Index of the vehicle with this id, making room for it if it is new.
+    fn vehicle_index(&mut self, id: VehicleId) -> usize {
+        if self.vehicles[0].id.is_none() {
+            // The stand-in shown before any vehicle was heard from becomes the first one.
+            self.vehicles[0].id = Some(id);
+            return 0;
+        }
+        match self.vehicles.binary_search_by_key(&Some(id), |v| v.id) {
+            Ok(index) => index,
+            Err(index) => {
+                self.vehicles.insert(index, Vehicle::new(Some(id), self.first_seq));
+                // The operator's choice stays on the vehicle it was made for.
+                if index <= self.active && self.chosen {
+                    self.active += 1;
+                }
+                index
+            }
+        }
+    }
+
+    /// Run once per frame before drawing: receive, update histories, send.
+    pub fn update(&mut self, ctx: &egui::Context) {
+        self.now = ctx.input(|i| i.time);
+        let now = self.now;
+        // Only controls laid out this frame count as present.
+        self.anchors.clear();
+
+        for bytes in self.link.poll(now, ctx) {
+            let Some((id, frame)) = envelope::split(&bytes) else { continue };
+            if id == SHARED {
+                for msg in self.shared_decoder.feed(frame) {
+                    self.vehicles.iter_mut().for_each(|v| v.client.handle(&msg, now));
+                }
+                continue;
+            }
+            let index = self.vehicle_index(id);
+            let vehicle = &mut self.vehicles[index];
+            for msg in vehicle.decoder.feed(frame) {
+                vehicle.client.handle(&msg, now);
+                vehicle.observe(&msg, now);
+            }
+        }
+
+        let link_opened = self.link.take_opened();
+        let stream = now >= self.next_stream;
+        if stream {
+            self.next_stream = now + STREAM_PERIOD_S;
+        }
+        for (index, vehicle) in self.vehicles.iter_mut().enumerate() {
+            let active = index == self.active;
+            vehicle.update(now, link_opened, active, ctx);
+            if !active {
+                // Only the selected vehicle is under the operator's hands.
+                vehicle.release_controls();
+            } else if stream {
+                vehicle.stream_commands();
+            }
+            // Before any vehicle is known, only the backend itself can be addressed.
+            let id = vehicle.id.unwrap_or(SHARED);
+            for frame in vehicle.client.drain() {
+                self.link.send(envelope::wrap(id, &frame));
+            }
+            vehicle.client.tx.prune();
         }
     }
 }

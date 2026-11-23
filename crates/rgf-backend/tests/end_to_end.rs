@@ -3,6 +3,7 @@
 
 use rgf_backend::Router;
 use rgf_core::client::label;
+use rgf_core::envelope::{VehicleId, SHARED};
 use rgf_core::msgs::common::{Mode, VehicleType};
 use rgf_core::msgs::mission::MissionAction;
 use rgf_core::msgs::simctl::{SimLinkFault, SimSelectVehicle};
@@ -43,20 +44,20 @@ impl Rig {
         self.now += DT;
         for frame in self.client.drain() {
             for msg in self.from_client.feed(&frame) {
-                self.router.from_ui(msg, self.now);
+                self.router.from_ui(0, msg, self.now);
             }
         }
         self.router.tick(self.now);
-        for frame in self.router.drain_to_vehicle() {
+        for (_, frame) in self.router.drain_to_vehicle() {
             self.sim.receive(&frame);
         }
         self.sim.step(DT);
         for frame in self.sim.drain() {
             for msg in self.from_vehicle.feed(&frame) {
-                self.router.from_vehicle(msg, self.now);
+                self.router.from_vehicle(0, msg, self.now);
             }
         }
-        for frame in self.router.drain_to_ui() {
+        for (_, frame) in self.router.drain_to_ui() {
             for msg in self.to_client.feed(&frame) {
                 self.client.handle(&msg, self.now);
             }
@@ -246,6 +247,9 @@ fn manual_drive_and_motor_test_move_the_right_actuators() {
         rig.client.send(MotorCommand { index: 3, value: 0.5 });
         rig.step();
     }
+    let torque: Vec<f32> = rig.client.motors.iter().map(|m| m.as_ref().unwrap().torque_nm).collect();
+    assert!(torque[3] > 0.0, "motor 3 should report torque: {torque:?}");
+    assert!(torque.iter().enumerate().all(|(i, t)| i == 3 || t.abs() < 0.01), "only motor 3: {torque:?}");
     let rpm: Vec<f32> = rig.client.motors.iter().map(|m| m.as_ref().unwrap().rpm).collect();
     assert!(rpm[3] > 20.0, "motor 3 should spin: {rpm:?}");
     assert!(rpm.iter().enumerate().all(|(i, r)| i == 3 || r.abs() < 1.0), "only motor 3: {rpm:?}");
@@ -306,4 +310,163 @@ fn switching_vehicle_resets_what_the_client_knows() {
     assert!(rig.client.actuators.iter().all(Option::is_some));
     let pose = rig.client.pose.as_ref().unwrap();
     assert!((pose.lat - home(VehicleType::BOAT).lat).abs() < 0.01);
+}
+
+/// Several vehicles behind one router, each with the client the UI keeps for it. Every
+/// client numbers its commands from 1, so the same numbers are in flight to each vehicle.
+struct Fleet {
+    clients: Vec<Client>,
+    sims: Vec<Sim>,
+    router: Router,
+    now: f64,
+    decoders: Vec<[Decoder; 3]>,
+    /// Ids that shared (base station) messages arrived under.
+    shared_seen: usize,
+}
+
+impl Fleet {
+    fn new(vehicles: &[VehicleType]) -> Self {
+        let mut fleet = Self {
+            clients: vehicles.iter().map(|_| Client::new(1)).collect(),
+            sims: vehicles.iter().enumerate().map(|(slot, v)| Sim::new_at(*v, slot as u8)).collect(),
+            router: Router::default(),
+            now: 0.0,
+            decoders: vehicles.iter().map(|_| Default::default()).collect(),
+            shared_seen: 0,
+        };
+        fleet.run(1.0);
+        fleet
+    }
+
+    fn step(&mut self) {
+        self.now += DT;
+        for (id, client) in self.clients.iter_mut().enumerate() {
+            for frame in client.drain() {
+                for msg in self.decoders[id][0].feed(&frame) {
+                    self.router.from_ui(id as VehicleId, msg, self.now);
+                }
+            }
+        }
+        self.router.tick(self.now);
+        for (id, frame) in self.router.drain_to_vehicle() {
+            for (index, sim) in self.sims.iter_mut().enumerate() {
+                if id == SHARED || id as usize == index {
+                    sim.receive(&frame);
+                }
+            }
+        }
+        for (id, sim) in self.sims.iter_mut().enumerate() {
+            sim.step(DT);
+            for frame in sim.drain() {
+                for msg in self.decoders[id][1].feed(&frame) {
+                    self.router.from_vehicle(id as VehicleId, msg, self.now);
+                }
+            }
+        }
+        for (id, frame) in self.router.drain_to_ui() {
+            if id == SHARED {
+                self.shared_seen += 1;
+            }
+            for (index, client) in self.clients.iter_mut().enumerate() {
+                if id == SHARED || id as usize == index {
+                    for msg in self.decoders[index][2].feed(&frame) {
+                        client.handle(&msg, self.now);
+                    }
+                }
+            }
+        }
+        for client in &mut self.clients {
+            client.poll(self.now);
+        }
+    }
+
+    fn run(&mut self, seconds: f64) {
+        for _ in 0..(seconds / DT).round() as usize {
+            self.step();
+        }
+    }
+
+    fn settle(&mut self, vehicle: usize, label: &str) -> TxState {
+        for _ in 0..(10.0 / DT) as usize {
+            self.step();
+            match self.clients[vehicle].state(label) {
+                Some(TxState::Pending { .. }) | None => {}
+                Some(done) => return done,
+            }
+        }
+        panic!("'{label}' never settled for vehicle {vehicle}");
+    }
+}
+
+#[test]
+fn fleet_vehicles_report_separately_and_start_apart() {
+    let mut fleet = Fleet::new(&[VehicleType::ROVER6, VehicleType::TRACTOR, VehicleType::SKID_STEER]);
+    fleet.run(2.5);
+    for (client, sim) in fleet.clients.iter().zip(&fleet.sims) {
+        assert_eq!(client.vehicle_type(), Some(sim.spec.vehicle_type));
+        assert_eq!(client.actuators.len(), sim.spec.actuators.len());
+        assert_eq!(client.vehicle_epoch, 0, "telemetry from another vehicle would look like a swap");
+    }
+    let frame = LocalFrame::new(home(VehicleType::ROVER6));
+    let at = |c: &Client| c.pose.as_ref().map(|p| frame.to_local(LatLon::new(p.lat, p.lon))).unwrap();
+    for (a, b) in [(0, 1), (0, 2), (1, 2)] {
+        let gap = (at(&fleet.clients[a]) - at(&fleet.clients[b])).length();
+        assert!(gap > 2.5 && gap < 12.0, "vehicles {a} and {b} are {gap} m apart");
+    }
+}
+
+#[test]
+fn fleet_commands_reach_only_the_vehicle_they_are_for() {
+    let mut fleet = Fleet::new(&[VehicleType::ROVER6, VehicleType::SKID_STEER]);
+    fleet.clients[1].set_mode(Mode::MANUAL, fleet.now);
+    assert_eq!(fleet.settle(1, label::MODE), TxState::Confirmed);
+    fleet.run(1.0);
+    assert_eq!((fleet.sims[0].mode, fleet.sims[1].mode), (Mode::DISARMED, Mode::MANUAL));
+    assert_eq!(fleet.clients[0].state(label::MODE), None, "the other client saw no confirmation");
+
+    // The same sequence number to the other vehicle is tracked on its own.
+    fleet.clients[0].set_estop(true, fleet.now);
+    assert_eq!(fleet.settle(0, label::ESTOP), TxState::Confirmed);
+    fleet.run(1.0);
+    assert!(fleet.sims[0].estop && !fleet.sims[1].estop);
+    assert_eq!(fleet.clients[1].mode(), Some(Mode::MANUAL), "stopping one vehicle leaves the other running");
+}
+
+#[test]
+fn fleet_link_loss_on_one_vehicle_does_not_affect_another() {
+    let mut fleet = Fleet::new(&[VehicleType::ROVER6, VehicleType::TRACTOR]);
+    fleet.clients[1].send_tracked(label::SIM_FAULT, fleet.now, |seq| SimLinkFault { seq, loss_pct: 0, cut: true });
+    assert_eq!(fleet.settle(1, label::SIM_FAULT), TxState::Confirmed);
+
+    let id = param::WP_RADIUS as u16;
+    for client in &mut fleet.clients {
+        client.set_param(id, 3.0, fleet.now);
+    }
+    assert_eq!(fleet.settle(0, &label::param(id)), TxState::Confirmed);
+    assert_eq!(fleet.settle(1, &label::param(id)), TxState::NotSent(Failure::Timeout));
+    assert_eq!(fleet.sims[0].params[param::WP_RADIUS].value, 3.0);
+    assert_ne!(fleet.sims[1].params[param::WP_RADIUS].value, 3.0);
+    fleet.run(2.0);
+    assert!(fleet.clients[0].vehicle_alive(fleet.now) && !fleet.clients[1].vehicle_alive(fleet.now));
+}
+
+#[test]
+fn fleet_shares_one_base_station() {
+    use rgf_core::msgs::rtk::{BaseConfig, BaseMode};
+    let mut fleet = Fleet::new(&[VehicleType::ROVER6, VehicleType::SKID_STEER]);
+    fleet.clients[1].send_tracked(label::BASE, fleet.now, |seq| BaseConfig {
+        seq,
+        use_fixed: false,
+        min_duration_s: 5,
+        accuracy_limit_m: 1.0,
+        ..Default::default()
+    });
+    assert_eq!(fleet.settle(1, label::BASE), TxState::Confirmed, "answered to the client that asked");
+    assert_eq!(fleet.clients[0].state(label::BASE), None);
+    fleet.run(22.0);
+    assert!(fleet.shared_seen > 10, "base status travels as shared");
+    for client in &fleet.clients {
+        assert_eq!(client.base.as_ref().unwrap().mode, BaseMode::BASE_FIXED);
+        assert_eq!(client.pose.as_ref().unwrap().fix, FixType::RTK_FIXED, "corrections reach every vehicle");
+    }
 }

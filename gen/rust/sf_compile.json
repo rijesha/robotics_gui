@@ -380,15 +380,15 @@
       "package": "telemetry",
       "source_file": "telemetry.sf",
       "msgid": 2,
-      "max_size": 26,
-      "base_size": 26,
-      "min_size": 26,
+      "max_size": 30,
+      "base_size": 30,
+      "min_size": 30,
       "is_variable": false,
       "is_envelope": false,
       "extensions_start": null,
       "magic_bytes": [
-        86,
-        89
+        103,
+        192
       ],
       "oneofs": null,
       "generated_files": {

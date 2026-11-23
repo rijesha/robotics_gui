@@ -52,7 +52,8 @@ fn main() {
             .expect("#station_canvas is not a canvas");
 
         // The backend is assumed to run on the machine that served this page, unless the
-        // address bar says otherwise with ?backend=ws://host:port. ?theme=light starts light.
+        // address bar says otherwise with ?backend=ws://host:port. ?theme=light starts light,
+        // ?layout=map starts in the map layout.
         let location = window.location();
         let query = location.search().unwrap_or_default();
         let param = |key: &str| {
@@ -64,12 +65,19 @@ fn main() {
         let host = location.hostname().unwrap_or_else(|_| "127.0.0.1".into());
         let backend = param("backend").unwrap_or_else(|| format!("ws://{host}:9002"));
         let dark = param("theme").as_deref() != Some("light");
+        let map_layout = param("layout").as_deref() == Some("map");
 
         let started = eframe::WebRunner::new()
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(move |cc| Ok(Box::new(App { station: StationApp::new(&cc.egui_ctx, backend, None, dark) }))),
+                Box::new(move |cc| {
+                    let mut station = StationApp::new(&cc.egui_ctx, backend, None, dark);
+                    if map_layout {
+                        station.workspace.layout = rgf_ui::Layout::Map;
+                    }
+                    Ok(Box::new(App { station }))
+                }),
             )
             .await;
         if let Err(err) = started {

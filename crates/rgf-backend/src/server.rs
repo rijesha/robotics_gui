@@ -1,8 +1,13 @@
-//! Network front for the [`Router`]: UDP towards the vehicle, WebSocket towards UIs.
+//! Network front for the [`Router`]: UDP towards the vehicles, WebSocket towards UIs.
+//!
+//! Every WebSocket message is one [`envelope`]: a vehicle id, then struct-frame bytes.
 
+use crate::router::Registry;
 use crate::Router;
 use futures_util::{SinkExt, StreamExt};
+use rgf_core::envelope::{self, VehicleId, SHARED};
 use rgf_core::Decoder;
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -15,8 +20,9 @@ pub struct Config {
     pub ws_bind: String,
     /// Where vehicle telemetry arrives.
     pub udp_bind: String,
-    /// Where to send commands before the vehicle has been heard from.
-    pub vehicle_addr: Option<String>,
+    /// Vehicles expected from the start, numbered in this order. Others are numbered as
+    /// they are first heard from.
+    pub vehicle_addrs: Vec<String>,
 }
 
 impl Default for Config {
@@ -24,7 +30,7 @@ impl Default for Config {
         Self {
             ws_bind: "0.0.0.0:9002".into(),
             udp_bind: "0.0.0.0:14550".into(),
-            vehicle_addr: Some("127.0.0.1:14560".into()),
+            vehicle_addrs: vec!["127.0.0.1:14560".into()],
         }
     }
 }
@@ -32,18 +38,20 @@ impl Default for Config {
 pub async fn run(config: Config) -> std::io::Result<()> {
     let udp = UdpSocket::bind(&config.udp_bind).await?;
     let listener = TcpListener::bind(&config.ws_bind).await?;
-    let mut vehicle_addr: Option<SocketAddr> = match &config.vehicle_addr {
-        Some(addr) => tokio::net::lookup_host(addr).await?.next(),
-        None => None,
-    };
+    let mut registry = Registry::default();
+    for addr in &config.vehicle_addrs {
+        if let Some(addr) = tokio::net::lookup_host(addr).await?.next() {
+            registry.id_for(addr);
+        }
+    }
 
     // Telemetry fans out to every UI; a UI that falls behind skips ahead instead of stalling the rest.
     let (to_ui, _) = broadcast::channel::<Vec<u8>>(2048);
     let (from_ui_tx, mut from_ui) = mpsc::channel::<Vec<u8>>(1024);
 
     let mut router = Router::default();
-    let mut vehicle_decoder = Decoder::new();
-    let mut ui_decoder = Decoder::new();
+    let mut vehicle_decoders: BTreeMap<VehicleId, Decoder> = BTreeMap::new();
+    let mut ui_decoders: BTreeMap<VehicleId, Decoder> = BTreeMap::new();
     let start = Instant::now();
     let mut tick = tokio::time::interval(Duration::from_millis(20));
     let mut buf = vec![0u8; 65536];
@@ -53,17 +61,20 @@ pub async fn run(config: Config) -> std::io::Result<()> {
             received = udp.recv_from(&mut buf) => {
                 // A send to a vehicle that is not there yet surfaces here as an error; ignore it.
                 if let Ok((n, addr)) = received {
-                    vehicle_addr = Some(addr);
-                    let now = start.elapsed().as_secs_f64();
-                    for msg in vehicle_decoder.feed(&buf[..n]) {
-                        router.from_vehicle(msg, now);
+                    if let Some(id) = registry.id_for(addr) {
+                        let now = start.elapsed().as_secs_f64();
+                        for msg in vehicle_decoders.entry(id).or_default().feed(&buf[..n]) {
+                            router.from_vehicle(id, msg, now);
+                        }
                     }
                 }
             }
             Some(bytes) = from_ui.recv() => {
                 let now = start.elapsed().as_secs_f64();
-                for msg in ui_decoder.feed(&bytes) {
-                    router.from_ui(msg, now);
+                if let Some((id, frame)) = envelope::split(&bytes) {
+                    for msg in ui_decoders.entry(id).or_default().feed(frame) {
+                        router.from_ui(id, msg, now);
+                    }
                 }
             }
             accepted = listener.accept() => {
@@ -74,14 +85,16 @@ pub async fn run(config: Config) -> std::io::Result<()> {
             _ = tick.tick() => router.tick(start.elapsed().as_secs_f64()),
         }
 
-        for frame in router.drain_to_vehicle() {
-            if let Some(addr) = vehicle_addr {
+        for (id, frame) in router.drain_to_vehicle() {
+            let one = registry.addr(id);
+            let targets: &[SocketAddr] = if id == SHARED { registry.addrs() } else { one.as_slice() };
+            for addr in targets {
                 let _ = udp.send_to(&frame, addr).await;
             }
         }
-        for frame in router.drain_to_ui() {
+        for (id, frame) in router.drain_to_ui() {
             // No UI connected is fine.
-            let _ = to_ui.send(frame);
+            let _ = to_ui.send(envelope::wrap(id, &frame));
         }
     }
 }

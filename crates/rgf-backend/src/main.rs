@@ -8,13 +8,13 @@ async fn main() -> std::io::Result<()> {
         match (arg.as_str(), args.next()) {
             ("--ws", Some(v)) => config.ws_bind = v,
             ("--udp", Some(v)) => config.udp_bind = v,
-            ("--vehicle", Some(v)) => config.vehicle_addr = Some(v),
+            ("--vehicle", Some(v)) => config.vehicle_addrs = v.split(',').map(str::to_owned).collect(),
             _ => {
-                eprintln!("usage: rgf-backend [--ws ADDR] [--udp ADDR] [--vehicle ADDR]");
+                eprintln!("usage: rgf-backend [--ws ADDR] [--udp ADDR] [--vehicle ADDR[,ADDR...]]");
                 std::process::exit(2);
             }
         }
     }
-    println!("UIs on ws://{}, vehicle link on udp://{}", config.ws_bind, config.udp_bind);
+    println!("UIs on ws://{}, vehicle links on udp://{}", config.ws_bind, config.udp_bind);
     server::run(config).await
 }

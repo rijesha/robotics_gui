@@ -5,7 +5,11 @@ Proof of concept, taking its cues from Foxglove (dockable panels), QGroundContro
 missions, verified settings) and AgOpenGPS (field coverage).
 
 - Map on ArcGIS World Imagery with waypoint missions and polygon surveys
-- Movement control, per-motor manual control and status, power usage
+- Movement control, power usage, and per-motor manual control with current, torque, speed
+  and temperature for every motor
+- Several vehicles on one link, with a switcher to choose which one the panels show and
+  the controls drive
+- A map layout: the map fills the window and everything else floats over it
 - Settings and commands that show **Not sent** unless the vehicle confirms them
 - RTK base station panel
 - Expected path from velocity and wheel or rudder position
@@ -18,6 +22,12 @@ missions, verified settings) and AgOpenGPS (field coverage).
 | Dark | Light |
 |---|---|
 | ![Dark theme: six-wheel rover running a survey](docs/desktop-dark.png) | ![Light theme: boat in manual control](docs/desktop-light.png) |
+
+**Map layout with three vehicles**: the map is the background; the vehicle list, camera,
+per-motor readout and drive controls are pinned over it, and any other panel opens as a
+floating window.
+
+![Map layout: three vehicles, tractor selected and driving](docs/map-mode.png)
 
 ## See it in use
 
@@ -52,9 +62,12 @@ the link cut, and the retry.
 ```sh
 cargo run -p station                      # desktop app with built-in backend and simulator
 cargo run -p station -- --vehicle boat    # rover6 (default), tractor, skid, boat
+cargo run -p station -- --vehicle rover6,tractor,skid   # several vehicles at once
+cargo run -p station -- --layout map      # start in the map layout (or use Dock | Map in the bar)
 cargo run -p station -- --theme light     # dark is the default; the sun/moon button switches
 cargo run -p station -- --phone           # try the phone layout in a small window
 cargo run -p station -- --demo survey     # walkthroughs: survey, drive, linkloss, themes, phone
+cargo run -p station -- --vehicle rover6,tractor,skid --demo fleet   # switching vehicles, map layout
 ```
 
 To re-record a clip (release build recommended):
@@ -64,13 +77,15 @@ cargo run --release -p station -- --size 1180x800 --vehicle tractor --demo surve
     --fps 6 --record docs/media/survey.gif
 ```
 
-The vehicle can also be switched from the **Link** panel while running.
+The type of the selected simulated vehicle can also be changed from the **Link** panel
+while running.
 
 To run the parts separately, as they would be deployed, and use the UI from a browser or
 phone on the same network (needs [Trunk](https://trunkrs.dev): `cargo install trunk`):
 
 ```sh
 tools/run-dev.sh tractor                  # simulator + backend + web UI on :8080
+tools/run-dev.sh rover6 tractor skid      # the same with three vehicles
 ```
 
 or by hand:
@@ -82,17 +97,27 @@ cd apps/station && trunk serve                 # UI at http://<host>:8080
 cargo run -p station -- --connect ws://HOST:9002   # or the desktop UI against that backend
 ```
 
+For more vehicles, start one simulator each on its own port and start slot, and tell the
+backend about them in the order they should be numbered:
+
+```sh
+cargo run -p rgf-sim -- --vehicle rover6  --bind 127.0.0.1:14560 --slot 0
+cargo run -p rgf-sim -- --vehicle tractor --bind 127.0.0.1:14561 --slot 1
+cargo run -p rgf-backend -- --vehicle 127.0.0.1:14560,127.0.0.1:14561
+```
+
 The web UI connects to port 9002 on the host that served it; override with
-`?backend=ws://host:port`; add `?theme=light` to start in the light theme.
+`?backend=ws://host:port`; add `?theme=light` to start in the light theme and
+`?layout=map` to start in the map layout.
 
 ## Using it
 
 | Panel | What it does |
 |---|---|
-| Map | Imagery, vehicle, trail, expected path (yellow), mission, RTK base, lidar returns, obstacles (red) and terrain height (colour scale). Tools: **Waypoints** and **Survey area** add points on click; drag a point to move it, right-click to delete. |
+| Map | Imagery, every vehicle (click one to select it), trail, expected path (yellow), mission, RTK base, lidar returns, obstacles (red) and terrain height (colour scale). Tools: **Waypoints** and **Survey area** add points on click; drag a point to move it, right-click to delete. |
 | Mission | Waypoint list, survey settings (pass spacing, direction, overshoot, perimeter lap), upload, start, pause, progress and cross-track error. |
 | Drive | Mode selection, joystick (or W A S D / arrow keys) in Manual. |
-| Motors | One row per actuator the vehicle reports: rpm or angle, current, voltage, temperature, faults. In Motor test each has a slider. |
+| Motors | One block per actuator the vehicle reports: current, torque, speed (or angle for steering and rudders) and temperature, each with its last 30 s, plus commanded output and faults. In Motor test each has a slider. |
 | Power | Battery state, time remaining, power history, current by motor. |
 | Settings | Vehicle parameters. Each row shows whether the last change was confirmed. |
 | RTK Base | Base status, survey-in or fixed-position setup, rover fix quality. |
@@ -100,11 +125,31 @@ The web UI connects to port 9002 on the host that served it; override with
 | Lidar | Orbitable 3D point cloud coloured by height. |
 | Link | Backend and vehicle link state; simulator vehicle picker and link-fault injection. |
 
-The status bar shows mode, GNSS fix, battery and speed, and holds the theme switch and the
-STOP button. A banner appears under it when the backend or vehicle link is lost or the
-emergency stop is engaged.
+The status bar shows mode, GNSS fix, battery and speed, and holds the layout switch, the
+theme switch and the STOP button. A banner appears under it when the backend or vehicle
+link is lost or the emergency stop is engaged.
 
-Panels can be dragged, split and tabbed. Below 700 px wide the app switches to one panel
+### Several vehicles
+
+With more than one vehicle the status bar lists them. Click one there, click it on the
+map, or press its number key to select it. Every panel then shows that vehicle, and the
+joystick, motor test, mission and settings act on it alone. The others keep reporting in
+the background: their trails and positions stay on the map and a banner says if one stops
+answering. Switching releases the joystick and motor sliders, and a vehicle that stops
+receiving drive commands stops by itself. **STOP** stops the selected vehicle; **STOP ALL**
+stops every one.
+
+### Layouts
+
+**Dock** is the tiled layout: panels can be dragged, split and tabbed.
+
+**Map** puts the map behind everything. Pinned over it are the vehicle list, mission
+progress, the camera picture, a table of current, torque, speed and temperature per motor,
+and the mode buttons with the joystick in Manual. The row of names at the top right (or
+**View**) opens any panel as a floating window that can be moved, resized, collapsed and
+closed; a pinned card steps aside while its full panel is open.
+
+Panels can be dragged, split and tabbed in the Dock layout. Below 700 px wide the app switches to one panel
 at a time with a tab bar, and puts a joystick over the map in Manual mode.
 
 ### Delivery verification
@@ -139,9 +184,15 @@ apps/station/        the application (desktop, web)
 ```
 
 ```
- UI (egui) <--WebSocket--> backend <--UDP--> vehicle or simulator
-            struct-frame             struct-frame
+ UI (egui) <--WebSocket--> backend <--UDP--> vehicles or simulators
+        id + struct-frame            struct-frame
 ```
+
+The messages carry no vehicle id. The backend tells vehicles apart by the UDP address
+their telemetry comes from and numbers them (those named with `--vehicle` first, in that
+order). Each WebSocket message is one byte of vehicle number followed by struct-frame
+bytes (`rgf_core::envelope`); 255 addresses the backend's base station, or every vehicle
+for RTK corrections. Retries are tracked per vehicle.
 
 All links use struct-frame's Bulk profile, because lidar scans and video chunks exceed
 the 255-byte payload of the Standard profile.
@@ -170,7 +221,8 @@ let workspace = rgf_ui::Workspace::new(panels, rgf_ui::panels::DEFAULT_LAYOUT);
 Take colours from `rgf_ui::theme::of(ui)` and build with the helpers in `rgf_ui::widgets`
 (`card`, `chip`, `stats`, `meter`, `primary_button`) so a panel follows both themes.
 
-`station.client` holds the latest telemetry and sends commands;
+`station` dereferences to the selected vehicle, so `station.client` holds that vehicle's
+latest telemetry and sends commands to it; `station.vehicles()` lists all of them.
 `widgets::tx_status(ui, station, label)` shows the delivery state of anything sent with
 `client.send_tracked(label, ...)`.
 
@@ -198,7 +250,9 @@ cargo test --workspace
 `crates/rgf-backend/tests/end_to_end.rs` wires the client, the backend router and each
 simulated vehicle together in memory: missions run to completion on all four vehicles,
 settings are verified by readback, a cut link reports Not sent, and the RTK base brings
-the rover to a fixed solution.
+the rover to a fixed solution. A second rig runs several vehicles behind one router:
+commands, emergency stop and link loss on one leave the others alone, and all share the
+base station.
 
 ## Mobile
 
@@ -214,6 +268,12 @@ the rover to a fixed solution.
 - The simulated camera and lidar stay level; roll and pitch are reported but not applied
   to them.
 - Vehicles do not collide with obstacles.
+- A vehicle is identified by the UDP address it sends from. One that comes back on a
+  different port shows up as a new vehicle, and the old entry stays as lost.
+- One base station serves all vehicles and is placed by the first; a fleet spread over
+  distant sites (the boat starts on a lake far from the others) shares it regardless.
+- Video and lidar from every vehicle cross the link, though only the selected vehicle's
+  picture is decoded.
 - Sequence numbers are per UI; two UIs on one backend can, rarely, see each other's
   confirmations.
 - The WebSocket and UDP links are unauthenticated and unencrypted.

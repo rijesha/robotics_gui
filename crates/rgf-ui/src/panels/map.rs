@@ -1,14 +1,14 @@
-//! Top-down map on ArcGIS World Imagery: vehicle, expected path, mission editing, and
-//! what the lidar has seen.
+//! Top-down map on ArcGIS World Imagery: every vehicle, and for the selected one its
+//! expected path, mission editing, and what the lidar has seen.
 
-use crate::station::{MapTool, OBSTACLE_M};
-use crate::widgets::segment;
+use crate::station::{MapTool, Vehicle, OBSTACLE_M};
+use crate::widgets::{outlined_text, segment};
 use crate::{theme, Panel, Station};
 use egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Sense, Shape, Stroke, Vec2};
 use rgf_core::geo::body_to_local;
 use rgf_core::msgs::rtk::BaseMode;
 use rgf_core::msgs::telemetry::NavState;
-use rgf_core::{LatLon, Vec2 as Local};
+use rgf_core::{LatLon, Vec2 as Local, VehicleId};
 use std::path::PathBuf;
 use walkers::sources::{Attribution, TileUrls};
 use walkers::{lat_lon, HttpOptions, HttpTiles, Map, MapMemory, Projector, TileId};
@@ -48,6 +48,8 @@ pub struct MapPanel {
     show_lidar: bool,
     show_trail: bool,
     show_path: bool,
+    /// The vehicle the map last showed as selected, to notice when another is picked.
+    shown: Option<VehicleId>,
 }
 
 impl MapPanel {
@@ -63,6 +65,7 @@ impl MapPanel {
             show_lidar: true,
             show_trail: true,
             show_path: true,
+            shown: None,
         }
     }
 }
@@ -75,6 +78,13 @@ struct LocalToScreen {
 }
 
 impl LocalToScreen {
+    fn new(projector: &Projector, frame: &rgf_core::LocalFrame) -> Self {
+        Self {
+            origin: project(projector, frame.origin),
+            px_per_m: projector.scale_pixel_per_meter(lat_lon(frame.origin.lat, frame.origin.lon)),
+        }
+    }
+
     fn pos(&self, v: Local) -> Pos2 {
         self.origin + Vec2::new(v.x as f32, -v.y as f32) * self.px_per_m
     }
@@ -98,7 +108,8 @@ struct Actions {
     clear_terrain: bool,
 }
 
-fn toolbar_frame(ui: &egui::Ui) -> egui::Frame {
+/// A card that reads well over imagery; also used by what the map layout floats on top.
+pub(crate) fn toolbar_frame(ui: &egui::Ui) -> egui::Frame {
     let p = theme::of(ui);
     egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border)).corner_radius(8).inner_margin(4)
 }
@@ -113,7 +124,11 @@ impl Panel for MapPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, station: &mut Station) {
-        let Self { tiles, memory, show_terrain, show_obstacles, show_lidar, show_trail, show_path } = self;
+        let Self { tiles, memory, show_terrain, show_obstacles, show_lidar, show_trail, show_path, shown } = self;
+        // Picking another vehicle brings it into view, wherever the map had been dragged to.
+        if std::mem::replace(shown, station.id) != station.id && shown.is_some() {
+            memory.follow_my_position();
+        }
         // Until a vehicle reports in, look at the default field.
         let vehicle = station.vehicle_pos().unwrap_or(LatLon::new(41.9, -93.55));
         let following = memory.detached().is_none();
@@ -125,10 +140,7 @@ impl Panel for MapPanel {
                 let painter = ui.painter().with_clip_rect(clip);
                 station.anchor("map", response);
 
-                let to_screen = station.frame.map(|frame| LocalToScreen {
-                    origin: project(projector, frame.origin),
-                    px_per_m: projector.scale_pixel_per_meter(lat_lon(frame.origin.lat, frame.origin.lon)),
-                });
+                let to_screen = station.frame.map(|frame| LocalToScreen::new(projector, &frame));
                 station.map_view = to_screen.as_ref().map(|t| (t.origin, t.px_per_m));
 
                 if let (Some(frame), Some(to_screen)) = (station.frame, &to_screen) {
@@ -139,15 +151,45 @@ impl Panel for MapPanel {
                         draw_lidar(&painter, clip, station, &frame, to_screen);
                     }
                 }
-                if *show_trail && station.trail.len() > 1 {
-                    let points: Vec<Pos2> = station.trail.iter().map(|p| project(projector, *p)).collect();
-                    painter.line(points, Stroke::new(2.0, theme::VEHICLE.gamma_multiply(0.7)));
+                let (now, active, fleet) = (station.now, station.active_index(), station.is_fleet());
+                if *show_trail {
+                    for (index, vehicle) in station.vehicles().iter().enumerate().filter(|(_, v)| v.trail.len() > 1) {
+                        let points: Vec<Pos2> = vehicle.trail.iter().map(|p| project(projector, *p)).collect();
+                        let (width, opacity) = if index == active { (2.0, 0.7) } else { (1.5, 0.4) };
+                        painter.line(points, Stroke::new(width, theme::vehicle_color(index).gamma_multiply(opacity)));
+                    }
                 }
 
                 draw_base(&painter, projector, station);
                 draw_mission(ui, &painter, projector, station);
-                if let (Some(frame), Some(to_screen)) = (station.frame, &to_screen) {
-                    draw_vehicle(&painter, station, &frame, to_screen, *show_path);
+                // The selected vehicle is drawn last, on top of any it is parked beside.
+                let mut picked = None;
+                let order = (0..station.vehicles().len()).filter(|i| *i != active).chain([active]);
+                for index in order {
+                    let vehicle = &station.vehicles()[index];
+                    let look = Look {
+                        color: theme::vehicle_color(index),
+                        selected: index == active,
+                        // Parked side by side, full names would run into each other.
+                        label: fleet.then(|| match index == active {
+                            true => format!("{}  {}", index + 1, vehicle.name()),
+                            false => (index + 1).to_string(),
+                        }),
+                        show_path: *show_path && index == active,
+                    };
+                    let Some(at) = draw_vehicle(&painter, projector, vehicle, now, &look) else { continue };
+                    if index != active {
+                        let rect = Rect::from_center_size(at, Vec2::splat(2.0 * HANDLE_PX));
+                        let response = ui
+                            .interact(rect, ui.scope_id().with(("vehicle", index)), Sense::click())
+                            .on_hover_text(format!("Select {}", vehicle.name()));
+                        if response.clicked() {
+                            picked = Some(index);
+                        }
+                    }
+                }
+                if let Some(index) = picked {
+                    station.select(index);
                 }
 
                 // Clicks on the map itself add points in the editing tools.
@@ -321,20 +363,31 @@ fn draw_lidar(
     painter.add(Shape::mesh(mesh));
 }
 
+/// How one vehicle is drawn among the others.
+struct Look {
+    color: Color32,
+    selected: bool,
+    /// Shown under the vehicle when there are several to tell apart.
+    label: Option<String>,
+    show_path: bool,
+}
+
+/// Draw a vehicle where it reports being. Returns its position on screen.
 fn draw_vehicle(
     painter: &egui::Painter,
-    station: &Station,
-    frame: &rgf_core::LocalFrame,
-    to_screen: &LocalToScreen,
-    show_path: bool,
-) {
-    let Some(pose) = &station.client.pose else { return };
+    projector: &Projector,
+    vehicle: &Vehicle,
+    now: f64,
+    look: &Look,
+) -> Option<Pos2> {
+    let (pose, frame) = (vehicle.client.pose.as_ref()?, vehicle.frame.as_ref()?);
+    let to_screen = LocalToScreen::new(projector, frame);
     let heading = pose.heading_rad as f64;
     let center = frame.to_local(LatLon::new(pose.lat, pose.lon));
     let at = |forward: f64, right: f64| to_screen.pos(body_to_local(center, heading, forward, right));
 
-    if show_path {
-        if let Some(path) = station.expected_path() {
+    if look.show_path {
+        if let Some(path) = vehicle.expected_path() {
             let points: Vec<Pos2> = path.points.iter().map(|(f, r)| at(*f, *r)).collect();
             if path.nominal {
                 // Stopped: show where the current steering would lead, as a hint.
@@ -347,18 +400,32 @@ fn draw_vehicle(
         }
     }
 
-    let (length, width) = station.client.info.as_ref().map_or((1.0, 0.7), |i| (i.length_m as f64, i.width_m as f64));
+    let (length, width) = vehicle.client.info.as_ref().map_or((1.0, 0.7), |i| (i.length_m as f64, i.width_m as f64));
     // Never draw the vehicle smaller than a fingertip, however far out the map is zoomed.
     let scale = (22.0 / (length as f32 * to_screen.px_per_m)).max(1.0) as f64;
     let (half_l, half_w) = (length * scale / 2.0, width * scale / 2.0);
-    let alive = station.client.vehicle_alive(station.now);
-    let fill = if alive { theme::VEHICLE } else { Color32::from_gray(150) };
+    let alive = vehicle.client.vehicle_alive(now);
+    let fill = if alive { look.color } else { Color32::from_gray(150) };
+    // The ones not selected step back: fainter, with a thinner outline.
+    let (fill, outline) = if look.selected {
+        (fill, Stroke::new(2.0, Color32::WHITE))
+    } else {
+        (fill.gamma_multiply(0.75), Stroke::new(1.2, Color32::from_white_alpha(200)))
+    };
     // An arrowhead: nose, right tail, notch, left tail.
     let (nose, right, notch, left) =
         (at(half_l, 0.0), at(-half_l, half_w), at(-half_l * 0.45, 0.0), at(-half_l, -half_w));
     painter.add(Shape::convex_polygon(vec![nose, right, notch], fill, Stroke::NONE));
     painter.add(Shape::convex_polygon(vec![nose, notch, left], fill, Stroke::NONE));
-    painter.add(Shape::closed_line(vec![nose, right, notch, left], Stroke::new(2.0, Color32::WHITE)));
+    painter.add(Shape::closed_line(vec![nose, right, notch, left], outline));
+
+    let middle = at(0.0, 0.0);
+    if let Some(label) = &look.label {
+        let below = middle + Vec2::new(0.0, (half_l as f32 * to_screen.px_per_m).max(14.0) + 4.0);
+        let color = if look.selected { Color32::WHITE } else { Color32::from_gray(215) };
+        outlined_text(painter, below, Align2::CENTER_TOP, label, FontId::proportional(11.5), color);
+    }
+    Some(middle)
 }
 
 fn draw_base(painter: &egui::Painter, projector: &Projector, station: &Station) {

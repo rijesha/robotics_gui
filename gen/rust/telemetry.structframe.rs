@@ -66,13 +66,15 @@ pub struct MotorStatus {
     pub temp_c: f32,
     pub position_rad: f32,
     pub faults: u8,
+    //// Shaft torque, signed in the direction it pushes.
+    pub torque_nm: f32,
 }
 
 pub const TELEMETRY_MOTOR_STATUS_MSG_ID: u16 = 514;
-pub const TELEMETRY_MOTOR_STATUS_MAX_SIZE: usize = 26;
-pub const TELEMETRY_MOTOR_STATUS_BASE_SIZE: usize = 26;
-pub const TELEMETRY_MOTOR_STATUS_MAGIC1: u8 = 86;
-pub const TELEMETRY_MOTOR_STATUS_MAGIC2: u8 = 89;
+pub const TELEMETRY_MOTOR_STATUS_MAX_SIZE: usize = 30;
+pub const TELEMETRY_MOTOR_STATUS_BASE_SIZE: usize = 30;
+pub const TELEMETRY_MOTOR_STATUS_MAGIC1: u8 = 103;
+pub const TELEMETRY_MOTOR_STATUS_MAGIC2: u8 = 192;
 
 impl MotorStatus {
     pub const MSG_ID: u16 = TELEMETRY_MOTOR_STATUS_MSG_ID;
@@ -102,6 +104,8 @@ impl MotorStatus {
         _pos += 4;
         buf[_pos] = self.faults;
         _pos += 1;
+        buf[_pos.._pos+4].copy_from_slice(&self.torque_nm.to_le_bytes());
+        _pos += 4;
         _pos
     }
 
@@ -125,6 +129,8 @@ impl MotorStatus {
         _pos += 4;
         buf[_pos] = self.faults;
         _pos += 1;
+        buf[_pos.._pos+4].copy_from_slice(&self.torque_nm.to_le_bytes());
+        _pos += 4;
         _pos
     }
 
@@ -153,6 +159,8 @@ impl MotorStatus {
         _pos += 4;
         let faults = *buf.get(_pos)?;
         _pos += 1;
+        let torque_nm = f32::from_le_bytes(buf.get(_pos.._pos+4)?.try_into().ok()?);
+        _pos += 4;
         Some(Self {
             index,
             command,
@@ -162,6 +170,7 @@ impl MotorStatus {
             temp_c,
             position_rad,
             faults,
+            torque_nm,
         })
     }
 

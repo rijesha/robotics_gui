@@ -32,6 +32,8 @@ message MotorStatus {
   float temp_c = 6;
   float position_rad = 7;
   uint8 faults = 8;
+  // Shaft torque, signed in the direction it pushes.
+  float torque_nm = 9;
 }
 
 message PowerStatus {

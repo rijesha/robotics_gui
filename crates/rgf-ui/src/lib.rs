@@ -1,10 +1,12 @@
 //! Robotics GUI framework.
 //!
 //! A front end is a set of [`Panel`]s arranged by a [`Workspace`], all reading and
-//! commanding one [`Station`]. [`StationApp`] is the stock arrangement with every
+//! commanding one [`Station`], which holds every vehicle and shows the selected one. [`StationApp`] is the stock arrangement with every
 //! built-in panel; build your own `Workspace` to add or replace panels.
 
 pub mod app;
+pub mod fleet;
+pub mod hud;
 pub mod link;
 pub mod panels;
 pub mod station;
@@ -14,7 +16,7 @@ pub mod workspace;
 
 pub use app::StationApp;
 pub use station::Station;
-pub use workspace::Workspace;
+pub use workspace::{Layout, Workspace};
 
 /// One dockable view. Implement this to add your own.
 pub trait Panel {

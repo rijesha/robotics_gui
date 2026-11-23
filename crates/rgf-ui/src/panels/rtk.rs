@@ -133,7 +133,8 @@ impl Panel for RtkPanel {
                 if response.clicked() {
                     let config =
                         (self.use_fixed, self.min_duration_s, self.accuracy_limit_m, self.lat, self.lon, self.alt_m);
-                    station.client.send_tracked(label::BASE, station.now, |seq| BaseConfig {
+                    let now = station.now;
+                    station.client.send_tracked(label::BASE, now, |seq| BaseConfig {
                         seq,
                         use_fixed: config.0,
                         min_duration_s: config.1,

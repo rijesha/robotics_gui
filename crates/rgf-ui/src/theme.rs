@@ -65,6 +65,20 @@ pub const MISSION: Color32 = Color32::from_rgb(255, 255, 255);
 pub const SURVEY: Color32 = Color32::from_rgb(110, 226, 255);
 pub const VEHICLE: Color32 = Color32::from_rgb(66, 142, 255);
 
+/// Colour that identifies a vehicle on the map and in the vehicle list, by its place in
+/// the list. Like the other map colours these are the same in both themes.
+pub fn vehicle_color(index: usize) -> Color32 {
+    const COLORS: [Color32; 6] = [
+        VEHICLE,
+        Color32::from_rgb(255, 148, 48),
+        Color32::from_rgb(226, 96, 222),
+        Color32::from_rgb(44, 208, 186),
+        Color32::from_rgb(176, 222, 64),
+        Color32::from_rgb(255, 104, 124),
+    ];
+    COLORS[index % COLORS.len()]
+}
+
 pub fn palette(dark: bool) -> Palette {
     if dark {
         DARK

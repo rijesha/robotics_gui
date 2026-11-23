@@ -5,6 +5,7 @@
 
 pub mod client;
 pub mod codec;
+pub mod envelope;
 pub mod geo;
 pub mod kinematics;
 pub mod lidar;
@@ -17,4 +18,5 @@ pub use struct_frame_sdk as msgs;
 
 pub use client::Client;
 pub use codec::{Decoder, Message};
+pub use envelope::VehicleId;
 pub use geo::{LatLon, LocalFrame, Vec2};

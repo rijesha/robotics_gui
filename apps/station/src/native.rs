@@ -5,21 +5,24 @@ use crate::demo::{self, Demo};
 use crate::record::Recorder;
 use crate::App;
 use eframe::egui;
-use rgf_ui::StationApp;
+use rgf_ui::{Layout, StationApp};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 const USAGE: &str = "\
 usage: station [options]
-  --vehicle NAME      simulated vehicle: rover6 (default), tractor, skid, boat
+  --vehicle NAMES     simulated vehicles, comma separated, from rover6 (default), tractor,
+                      skid, boat; e.g. rover6,tractor,skid
   --connect URL       use a backend that is already running (ws://host:9002) instead of
                       starting the built-in backend and simulator
   --theme NAME        dark (default) or light
+  --layout NAME       dock (default), or map for the map with everything floating over it
   --phone             open at phone size to try the mobile layout
   --size WxH          window size in points (default 1500x950)
   --show TITLES       panels to bring to the front, comma separated (e.g. Lidar,Power)
-  --demo NAME         run a scripted walkthrough: survey, drive, linkloss, themes, phone
+  --demo NAME         run a scripted walkthrough: survey, drive, linkloss, themes,
+                      phone, fleet
   --record PATH.gif   record the window to a GIF until the demo ends, then exit
   --fps N             frames per second for --record (default 8)
   --screenshot PATH   save a PNG of the window after --after seconds, then exit
@@ -29,6 +32,7 @@ struct Args {
     vehicle: String,
     connect: Option<String>,
     dark: bool,
+    layout: Layout,
     size: [f32; 2],
     show: Vec<String>,
     demo: Option<String>,
@@ -43,6 +47,7 @@ fn parse_args() -> Args {
         vehicle: "rover6".into(),
         connect: None,
         dark: true,
+        layout: Layout::Dock,
         size: [1500.0, 950.0],
         show: Vec::new(),
         demo: None,
@@ -66,6 +71,13 @@ fn parse_args() -> Args {
                     "dark" => true,
                     "light" => false,
                     other => fail(format!("unknown theme '{other}'")),
+                }
+            }
+            "--layout" => {
+                args.layout = match value().as_str() {
+                    "dock" => Layout::Dock,
+                    "map" => Layout::Map,
+                    other => fail(format!("unknown layout '{other}'")),
                 }
             }
             "--phone" => args.size = [400.0, 800.0],
@@ -101,18 +113,33 @@ pub fn run() -> eframe::Result {
     let backend_url = match &args.connect {
         Some(url) => url.clone(),
         None => {
-            let Some(vehicle) = rgf_sim::parse_vehicle(&args.vehicle) else {
-                eprintln!("unknown vehicle '{}'\n{USAGE}", args.vehicle);
-                std::process::exit(2);
+            let vehicles: Vec<_> = args
+                .vehicle
+                .split(',')
+                .map(|name| {
+                    rgf_sim::parse_vehicle(name).unwrap_or_else(|| {
+                        eprintln!("unknown vehicle '{name}'\n{USAGE}");
+                        std::process::exit(2)
+                    })
+                })
+                .collect();
+            // One simulator per vehicle, each on its own port and parked in its own slot.
+            // The backend numbers them in this order.
+            let addr = |slot: usize| format!("127.0.0.1:{}", 14560 + slot);
+            let config = rgf_backend::server::Config {
+                vehicle_addrs: (0..vehicles.len()).map(addr).collect(),
+                ..Default::default()
             };
             // These threads live as long as the process.
-            rgf_backend::server::spawn(rgf_backend::server::Config::default());
-            rgf_sim::udp::spawn(
-                rgf_sim::Sim::new(vehicle),
-                rgf_sim::udp::DEFAULT_BIND.into(),
-                rgf_sim::udp::DEFAULT_GCS.into(),
-                Arc::new(AtomicBool::new(false)),
-            );
+            rgf_backend::server::spawn(config);
+            for (slot, vehicle) in vehicles.into_iter().enumerate() {
+                rgf_sim::udp::spawn(
+                    rgf_sim::Sim::new_at(vehicle, slot as u8),
+                    addr(slot),
+                    rgf_sim::udp::DEFAULT_GCS.into(),
+                    Arc::new(AtomicBool::new(false)),
+                );
+            }
             "ws://127.0.0.1:9002".to_owned()
         }
     };
@@ -135,6 +162,7 @@ pub fn run() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let mut station = StationApp::new(&cc.egui_ctx, backend_url, Some(tile_cache), args.dark);
+            station.workspace.layout = args.layout;
             for title in &args.show {
                 station.workspace.show_panel(title);
             }

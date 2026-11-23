@@ -43,7 +43,7 @@ pub struct Demo {
     waiting_since: Option<f64>,
 }
 
-pub const NAMES: &str = "survey, drive, linkloss, themes, phone";
+pub const NAMES: &str = "survey, drive, linkloss, themes, phone, fleet";
 
 pub fn script(name: &str) -> Option<Vec<Step>> {
     use Step::*;
@@ -162,6 +162,31 @@ pub fn script(name: &str) -> Option<Vec<Step>> {
             Wait(2.0),
             Show("Map"),
             Wait(2.0),
+        ],
+        // Run with several vehicles, e.g. --vehicle rover6,tractor,skid.
+        "fleet" => vec![
+            Wait(3.0),
+            Caption("Several vehicles on one link. The map layout keeps the map behind everything"),
+            Click("layout.map"),
+            Wait(1.5),
+            Click("mode.Manual"),
+            Settled(label::MODE),
+            Drag("drive.stick", (0.0, 0.0), (0.35, -0.7), 4.0),
+            Caption("Pick another vehicle from the list, or click it on the map"),
+            Click("vehicle.1"),
+            Wait(1.0),
+            Click("mode.Manual"),
+            Settled(label::MODE),
+            Drag("drive.stick", (0.0, 0.0), (-0.3, -0.75), 4.0),
+            Caption("Any panel floats over the map: current, torque, speed and temperature per motor"),
+            Show("Motors"),
+            Wait(1.0),
+            Drag("drive.stick", (0.0, 0.0), (0.5, -0.7), 5.0),
+            Click("vehicle.2"),
+            Wait(2.5),
+            Caption("STOP ALL stops every vehicle at once"),
+            Click("stop_all"),
+            Wait(3.0),
         ],
         _ => return None,
     })

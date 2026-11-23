@@ -237,21 +237,34 @@ pub fn joystick(ui: &mut Ui, size: f32) -> ((f32, f32), Response) {
 
 /// Minimal line chart of recent values, scaled to `max`.
 pub fn sparkline(ui: &mut Ui, values: impl ExactSizeIterator<Item = f32>, max: f32, size: Vec2, color: Color32) {
+    trend(ui, values, 0.0..=max, size, color);
+}
+
+/// Minimal line chart of recent values over `range`. A range that spans zero gets a
+/// zero line, so the direction of a signed value can be read.
+pub fn trend(
+    ui: &mut Ui,
+    values: impl ExactSizeIterator<Item = f32>,
+    range: std::ops::RangeInclusive<f32>,
+    size: Vec2,
+    color: Color32,
+) {
     let p = theme::of(ui);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 3, p.raised);
+    let (min, max) = (*range.start(), *range.end());
     let n = values.len();
-    if n < 2 || max <= 0.0 {
+    if n < 2 || max <= min {
         return;
+    }
+    let y_of = |v: f32| rect.bottom() - 2.0 - (rect.height() - 4.0) * ((v - min) / (max - min)).clamp(0.0, 1.0);
+    if min < 0.0 && max > 0.0 {
+        painter.hline(rect.x_range(), y_of(0.0), Stroke::new(1.0, p.border));
     }
     let points: Vec<Pos2> = values
         .enumerate()
-        .map(|(i, v)| {
-            let x = rect.left() + rect.width() * i as f32 / (n - 1) as f32;
-            let y = rect.bottom() - 2.0 - (rect.height() - 4.0) * (v / max).clamp(0.0, 1.0);
-            Pos2::new(x, y)
-        })
+        .map(|(i, v)| Pos2::new(rect.left() + rect.width() * i as f32 / (n - 1) as f32, y_of(v)))
         .collect();
     painter.line(points, Stroke::new(1.5, color));
 }

@@ -1,6 +1,7 @@
-//! Arranges panels: a dockable tile layout on wide screens, one panel at a time with a
-//! tab bar on phones.
+//! Arranges panels: a dockable tile layout or a map with everything floating over it on
+//! wide screens, one panel at a time with a tab bar on phones.
 
+use crate::hud::{Hidden, Hud};
 use crate::{Panel, Station};
 use egui_tiles::{Container, Linear, LinearDir, Tile, TileId, Tiles, Tree};
 
@@ -16,27 +17,65 @@ pub struct DesktopLayout {
     pub right_bottom: &'static [&'static str],
 }
 
+/// How a wide screen is arranged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    /// Panels docked side by side in tiles.
+    Dock,
+    /// The map fills the window; the essentials are pinned over it and any other panel
+    /// opens as a floating window.
+    Map,
+}
+
+/// Title of the panel the map layout puts behind everything else.
+const MAP_TITLE: &str = "Map";
+
 pub struct Workspace {
     panels: Vec<Box<dyn Panel>>,
     tree: Tree<usize>,
-    layout: DesktopLayout,
+    desktop: DesktopLayout,
     phone_tab: usize,
+    pub layout: Layout,
+    /// In the map layout, which panels are open as floating windows.
+    floating: Vec<bool>,
+    hud: Hud,
 }
 
 impl Workspace {
     pub fn new(panels: Vec<Box<dyn Panel>>, layout: DesktopLayout) -> Self {
         let tree = build_tree(&panels, &layout);
-        Self { panels, tree, layout, phone_tab: 0 }
+        let floating = vec![false; panels.len()];
+        Self { panels, tree, desktop: layout, phone_tab: 0, layout: Layout::Dock, floating, hud: Hud::default() }
     }
 
     pub fn reset_layout(&mut self) {
-        self.tree = build_tree(&self.panels, &self.layout);
+        self.tree = build_tree(&self.panels, &self.desktop);
+        self.floating.fill(false);
+    }
+
+    fn index_of(&self, title: &str) -> Option<usize> {
+        self.panels.iter().position(|p| p.title() == title)
+    }
+
+    /// Whether a panel is open as a floating window in the map layout.
+    pub fn is_floating(&self, title: &str) -> bool {
+        self.index_of(title).is_some_and(|index| self.floating[index])
+    }
+
+    /// Open or close a panel's floating window in the map layout.
+    pub fn set_floating(&mut self, title: &str, open: bool) {
+        if let Some(index) = self.index_of(title).filter(|_| title != MAP_TITLE) {
+            self.floating[index] = open;
+        }
     }
 
     /// Bring a panel to the front, by title.
     pub fn show_panel(&mut self, title: &str) {
-        let Some(index) = self.panels.iter().position(|p| p.title() == title) else { return };
+        let Some(index) = self.index_of(title) else { return };
         self.phone_tab = index;
+        if self.layout == Layout::Map {
+            self.set_floating(title, true);
+        }
         if let Some(tile) = self.tree.tiles.find_pane(&index) {
             self.tree.make_active(|id, _| id == tile);
         }
@@ -59,10 +98,86 @@ impl Workspace {
     pub fn ui(&mut self, ui: &mut egui::Ui, station: &mut Station) {
         if Self::is_phone(ui) {
             self.phone_ui(ui, station);
+        } else if let (Layout::Map, Some(map)) = (self.layout, self.index_of(MAP_TITLE)) {
+            self.map_ui(ui, station, map);
         } else {
             let mut behavior = Behavior { panels: &mut self.panels, station };
             self.tree.ui(&mut behavior, ui);
         }
+    }
+
+    fn map_ui(&mut self, ui: &mut egui::Ui, station: &mut Station, map: usize) {
+        let area = ui.max_rect();
+        self.panels[map].ui(ui, station);
+
+        let hidden = Hidden {
+            mission: self.is_floating("Mission"),
+            video: self.is_floating("Video"),
+            motors: self.is_floating("Motors"),
+            drive: self.is_floating("Drive"),
+        };
+        self.hud.ui(ui, area, station, hidden);
+        self.panel_rail(ui, area);
+
+        let p = crate::theme::of(ui);
+        let fill = egui::Color32::from_rgba_unmultiplied(p.bg.r(), p.bg.g(), p.bg.b(), 242);
+        let frame = egui::Frame::window(ui.style()).fill(fill);
+        let mut opened = 0;
+        for (index, panel) in self.panels.iter_mut().enumerate() {
+            if !self.floating[index] {
+                continue;
+            }
+            // Windows open beside the pinned cards and left of the vehicle in the middle of
+            // the map, each a step down and right of the one before.
+            let step = 26.0 * opened as f32;
+            opened += 1;
+            let size = if panel.padded() { egui::vec2(380.0, 540.0) } else { egui::vec2(440.0, 300.0) };
+            let padded = panel.padded();
+            egui::Window::new(panel.title())
+                .id(egui::Id::unique(("floating_panel", index)))
+                .frame(frame)
+                .open(&mut self.floating[index])
+                .default_pos(area.left_top() + egui::vec2(250.0 + step, 56.0 + step))
+                .default_size(size)
+                .constrain_to(area)
+                .show(ui.ctx(), |ui| {
+                    if padded {
+                        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| panel.ui(ui, station));
+                    } else {
+                        panel.ui(ui, station);
+                    }
+                });
+        }
+    }
+
+    /// Buttons along the top of the map that open and close each panel's floating window.
+    fn panel_rail(&mut self, ui: &mut egui::Ui, area: egui::Rect) {
+        let mut rail = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("panel_rail")
+                .max_rect(area.shrink(8.0))
+                .layout(egui::Layout::right_to_left(egui::Align::Min)),
+        );
+        // A narrow map has no room for a button per panel beside its own toolbar.
+        let compact = area.width() < 1150.0;
+        crate::panels::map::toolbar_frame(&rail).show(&mut rail, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                let mut toggle = |ui: &mut egui::Ui, index: usize| {
+                    let (panel, open) = (&self.panels[index], &mut self.floating[index]);
+                    if panel.title() != MAP_TITLE && ui.selectable_label(*open, panel.title()).clicked() {
+                        *open = !*open;
+                    }
+                };
+                let count = self.panels.len();
+                if compact {
+                    ui.menu_button("Panels", |ui| (0..count).for_each(|index| toggle(ui, index)));
+                } else {
+                    // Laid out from the right edge, so added last to first.
+                    (0..count).rev().for_each(|index| toggle(ui, index));
+                }
+            });
+        });
     }
 
     fn phone_ui(&mut self, ui: &mut egui::Ui, station: &mut Station) {

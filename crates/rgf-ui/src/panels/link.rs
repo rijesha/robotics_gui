@@ -71,6 +71,9 @@ impl Panel for LinkPanel {
         ui.add_space(4.0);
 
         card(ui, "Simulated vehicle", |ui| {
+            if station.is_fleet() {
+                hint(ui, format!("These act on the selected vehicle, {}.", station.name()));
+            }
             let current = station.client.vehicle_type();
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;

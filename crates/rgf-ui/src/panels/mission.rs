@@ -37,6 +37,32 @@ fn distance(metres: f64) -> String {
     }
 }
 
+/// How far the vehicle is through its mission.
+pub fn progress(ui: &mut egui::Ui, station: &Station) {
+    let p = theme::of(ui);
+    match &station.client.nav {
+        Some(nav) => {
+            let (text, color) = match nav.state {
+                NavState::NAV_IDLE => ("Idle", p.dim),
+                NavState::NAV_RUNNING => ("Running", p.ok),
+                NavState::NAV_PAUSED => ("Paused", p.warn),
+                NavState::NAV_COMPLETE => ("Complete", p.accent),
+            };
+            if nav.wp_count > 0 {
+                let done = nav.active_wp.min(nav.wp_count);
+                let fraction = done as f32 / nav.wp_count as f32;
+                meter(ui, fraction, color, format!("{text}: waypoint {done} of {}", nav.wp_count), 20.0);
+            } else {
+                hint(ui, "No mission on the vehicle.");
+            }
+            if nav.state == NavState::NAV_RUNNING {
+                hint(ui, format!("Next waypoint in {:.1} m. Off track by {:+.2} m.", nav.dist_to_wp_m, nav.xtrack_m));
+            }
+        }
+        None => hint(ui, "No mission status yet."),
+    }
+}
+
 impl Panel for MissionPanel {
     fn title(&self) -> &str {
         "Mission"
@@ -143,7 +169,8 @@ impl Panel for MissionPanel {
                 station.anchor("mission.upload", &response);
                 if response.clicked() {
                     let waypoints = station.plan.waypoints.clone();
-                    station.client.upload_mission(&waypoints, station.plan.speed_mps, now);
+                    let speed_mps = station.plan.speed_mps;
+                    station.client.upload_mission(&waypoints, speed_mps, now);
                     station.plan.uploaded = waypoints;
                 }
                 tx_status(ui, station, label::MISSION);
@@ -172,30 +199,7 @@ impl Panel for MissionPanel {
                 }
                 tx_status(ui, station, label::MISSION_CMD);
             });
-            match &station.client.nav {
-                Some(nav) => {
-                    let (text, color) = match nav.state {
-                        NavState::NAV_IDLE => ("Idle", p.dim),
-                        NavState::NAV_RUNNING => ("Running", p.ok),
-                        NavState::NAV_PAUSED => ("Paused", p.warn),
-                        NavState::NAV_COMPLETE => ("Complete", p.accent),
-                    };
-                    if nav.wp_count > 0 {
-                        let done = nav.active_wp.min(nav.wp_count);
-                        let fraction = done as f32 / nav.wp_count as f32;
-                        meter(ui, fraction, color, format!("{text}: waypoint {done} of {}", nav.wp_count), 20.0);
-                    } else {
-                        hint(ui, "No mission on the vehicle.");
-                    }
-                    if nav.state == NavState::NAV_RUNNING {
-                        hint(
-                            ui,
-                            format!("Next waypoint in {:.1} m. Off track by {:+.2} m.", nav.dist_to_wp_m, nav.xtrack_m),
-                        );
-                    }
-                }
-                None => hint(ui, "No mission status yet."),
-            }
+            progress(ui, station);
         });
     }
 }

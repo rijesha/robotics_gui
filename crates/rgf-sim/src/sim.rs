@@ -31,6 +31,15 @@ pub fn home(vehicle_type: VehicleType) -> LatLon {
     }
 }
 
+/// Where the vehicle in each start slot is parked, relative to home. Slots sit in rows
+/// far enough apart for the largest vehicle and inside the clearing around home.
+pub fn start_slot(slot: u8) -> Vec2 {
+    let (column, row) = ((slot % 3) as f64, (slot / 3) as f64);
+    // Middle, then right, then left of it.
+    let east = [0.0, 4.0, -4.0][column as usize];
+    Vec2::new(east, -5.0 * row)
+}
+
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: &'static str,
@@ -110,6 +119,7 @@ pub struct Sim {
     pub world: World,
     pub frame: LocalFrame,
     pub body: Body,
+    slot: u8,
     pub acts: Vec<Actuator>,
     pub mode: Mode,
     pub estop: bool,
@@ -146,12 +156,18 @@ pub struct Sim {
 
 impl Sim {
     pub fn new(vehicle_type: VehicleType) -> Self {
+        Self::new_at(vehicle_type, 0)
+    }
+
+    /// A vehicle parked in the given start slot, so several can share one site.
+    pub fn new_at(vehicle_type: VehicleType, slot: u8) -> Self {
         let spec = vehicles::spec(vehicle_type);
         let acts = vec![Actuator { temp_c: 25.0, ..Default::default() }; spec.actuators.len()];
         Self {
             world: if vehicle_type == VehicleType::BOAT { World::water() } else { World::land() },
             frame: LocalFrame::new(home(vehicle_type)),
-            body: Body::default(),
+            body: Body { pos: start_slot(slot), ..Default::default() },
+            slot,
             motor_cmds: vec![(0.0, f64::NEG_INFINITY); acts.len()],
             acts,
             mode: Mode::DISARMED,
@@ -176,7 +192,7 @@ impl Sim {
             gnss_sigma: 0.6,
             timers: Timers::default(),
             frame_id: 0,
-            rng: Rng(0xC0FFEE ^ vehicle_type as u64),
+            rng: Rng(0xC0FFEE ^ vehicle_type as u64 ^ ((slot as u64) << 16)),
             decoder: Decoder::new(),
             outbox: Vec::new(),
             spec,
@@ -235,7 +251,7 @@ impl Sim {
                 Message::SimSelectVehicle(m) => {
                     let fault = self.fault;
                     let mut outbox = std::mem::take(&mut self.outbox);
-                    *self = Sim::new(m.vehicle_type);
+                    *self = Sim::new_at(m.vehicle_type, self.slot);
                     self.fault = fault;
                     outbox.push(Message::from(CommandAck { seq: m.seq, msg_id, result: AckResult::ACCEPTED }).encode());
                     self.outbox = outbox;
@@ -554,6 +570,7 @@ impl Sim {
                     temp_c: a.temp_c as f32,
                     position_rad: if is_angle { a.output as f32 } else { 0.0 },
                     faults: a.faults,
+                    torque_nm: a.torque_nm as f32,
                 };
                 self.emit(msg);
             }
