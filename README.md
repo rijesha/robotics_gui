@@ -49,6 +49,11 @@ the link cut, and the retry.
 
 ![Verified settings walkthrough](docs/media/verified-settings.gif)
 
+**Several vehicles in the map layout** (rover, tractor and skid steer): switch layout,
+drive one, select another, open the Motors panel over the map, STOP ALL.
+
+![Fleet walkthrough](docs/media/fleet.gif)
+
 **Switching theme** (skid steer):
 
 ![Theme walkthrough](docs/media/themes.gif)
@@ -75,6 +80,8 @@ To re-record a clip (release build recommended):
 ```sh
 cargo run --release -p station -- --size 1180x800 --vehicle tractor --demo survey \
     --fps 6 --record docs/media/survey.gif
+cargo run --release -p station -- --size 1180x800 --vehicle rover6,tractor,skid --demo fleet \
+    --fps 6 --record docs/media/fleet.gif
 ```
 
 The type of the selected simulated vehicle can also be changed from the **Link** panel
