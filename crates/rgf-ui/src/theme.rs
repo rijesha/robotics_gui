@@ -79,11 +79,13 @@ pub fn vehicle_color(index: usize) -> Color32 {
     COLORS[index % COLORS.len()]
 }
 
+/// Palette of the design in use.
 pub fn palette(dark: bool) -> Palette {
+    let design = crate::design::current();
     if dark {
-        DARK
+        design.dark
     } else {
-        LIGHT
+        design.light
     }
 }
 
@@ -113,13 +115,14 @@ fn visuals(theme: Theme) -> egui::Visuals {
     let dark = theme == Theme::Dark;
     let p = palette(dark);
     let mut v = if dark { egui::Visuals::dark() } else { egui::Visuals::light() };
-    let radius = CornerRadius::same(6);
+    let design = crate::design::current();
+    let radius = CornerRadius::same(design.radius);
 
     v.panel_fill = p.bg;
     v.window_fill = p.surface;
     v.window_stroke = Stroke::new(1.0, p.border);
-    v.window_corner_radius = CornerRadius::same(8);
-    v.menu_corner_radius = CornerRadius::same(8);
+    v.window_corner_radius = CornerRadius::same(design.card_radius);
+    v.menu_corner_radius = CornerRadius::same(design.card_radius.min(10));
     v.extreme_bg_color = if dark { Color32::from_rgb(12, 14, 18) } else { Color32::from_rgb(250, 251, 252) };
     v.faint_bg_color = mix(p.surface, p.raised, 0.5);
     v.code_bg_color = p.raised;
@@ -168,7 +171,7 @@ fn visuals(theme: Theme) -> egui::Visuals {
     v
 }
 
-/// Install both themes. Call once at start-up; `dark` picks the one to start in.
+/// Install both themes of the design in use; `dark` picks the one to show.
 pub fn install(ctx: &egui::Context, dark: bool) {
     for theme in [Theme::Dark, Theme::Light] {
         ctx.set_visuals_of(theme, visuals(theme));

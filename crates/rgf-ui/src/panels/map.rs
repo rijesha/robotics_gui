@@ -111,7 +111,8 @@ struct Actions {
 /// A card that reads well over imagery; also used by what the map layout floats on top.
 pub(crate) fn toolbar_frame(ui: &egui::Ui) -> egui::Frame {
     let p = theme::of(ui);
-    egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border)).corner_radius(8).inner_margin(4)
+    let radius = crate::design::current().card_radius.min(12);
+    egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.border)).corner_radius(radius).inner_margin(4)
 }
 
 impl Panel for MapPanel {

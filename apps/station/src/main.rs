@@ -53,7 +53,8 @@ fn main() {
 
         // The backend is assumed to run on the machine that served this page, unless the
         // address bar says otherwise with ?backend=ws://host:port. ?theme=light starts light,
-        // ?layout=map starts in the map layout.
+        // ?layout=map starts in the map layout, ?design=horizon (or workbench, fleet,
+        // daylight) in that design.
         let location = window.location();
         let query = location.search().unwrap_or_default();
         let param = |key: &str| {
@@ -66,6 +67,8 @@ fn main() {
         let backend = param("backend").unwrap_or_else(|| format!("ws://{host}:9002"));
         let dark = param("theme").as_deref() != Some("light");
         let map_layout = param("layout").as_deref() == Some("map");
+        let design = param("design").and_then(|name| rgf_ui::design::find(&name));
+        let theme_given = param("theme").is_some();
 
         let started = eframe::WebRunner::new()
             .start(
@@ -73,6 +76,9 @@ fn main() {
                 eframe::WebOptions::default(),
                 Box::new(move |cc| {
                     let mut station = StationApp::new(&cc.egui_ctx, backend, None, dark);
+                    if let Some(index) = design {
+                        station.set_design(&cc.egui_ctx, index, theme_given.then_some(dark));
+                    }
                     if map_layout {
                         station.workspace.layout = rgf_ui::Layout::Map;
                     }

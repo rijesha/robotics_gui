@@ -71,10 +71,11 @@ pub fn chip(ui: &mut Ui, text: impl Into<String>, color: Color32) -> Response {
 /// A titled group with a border. The usual container for a block of related controls.
 pub fn card<R>(ui: &mut Ui, title: &str, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
     let p = theme::of(ui);
+    let design = crate::design::current();
     egui::Frame::new()
         .fill(p.surface)
-        .stroke(Stroke::new(1.0, p.border))
-        .corner_radius(8)
+        .stroke(Stroke::new(design.outline, p.border))
+        .corner_radius(design.card_radius)
         .inner_margin(10)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());

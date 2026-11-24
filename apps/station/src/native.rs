@@ -17,12 +17,15 @@ usage: station [options]
   --connect URL       use a backend that is already running (ws://host:9002) instead of
                       starting the built-in backend and simulator
   --theme NAME        dark (default) or light
-  --layout NAME       dock (default), or map for the map with everything floating over it
+  --design NAME       classic (default), horizon, workbench, fleet, daylight; each brings its
+                      own colours, layout and theme, which --layout and --theme override
+  --layout NAME       dock, map (everything floats over the map), focus (map beside one
+                      tool) or fleet (a card per vehicle beside the map)
   --phone             open at phone size to try the mobile layout
   --size WxH          window size in points (default 1500x950)
   --show TITLES       panels to bring to the front, comma separated (e.g. Lidar,Power)
   --demo NAME         run a scripted walkthrough: survey, drive, linkloss, themes,
-                      phone, fleet
+                      phone, fleet, cruise
   --record PATH.gif   record the window to a GIF until the demo ends, then exit
   --fps N             frames per second for --record (default 8)
   --screenshot PATH   save a PNG of the window after --after seconds, then exit
@@ -31,8 +34,9 @@ usage: station [options]
 struct Args {
     vehicle: String,
     connect: Option<String>,
-    dark: bool,
-    layout: Layout,
+    dark: Option<bool>,
+    design: usize,
+    layout: Option<Layout>,
     size: [f32; 2],
     show: Vec<String>,
     demo: Option<String>,
@@ -46,8 +50,9 @@ fn parse_args() -> Args {
     let mut args = Args {
         vehicle: "rover6".into(),
         connect: None,
-        dark: true,
-        layout: Layout::Dock,
+        dark: None,
+        design: 0,
+        layout: None,
         size: [1500.0, 950.0],
         show: Vec::new(),
         demo: None,
@@ -68,17 +73,23 @@ fn parse_args() -> Args {
             "--connect" => args.connect = Some(value()),
             "--theme" => {
                 args.dark = match value().as_str() {
-                    "dark" => true,
-                    "light" => false,
+                    "dark" => Some(true),
+                    "light" => Some(false),
                     other => fail(format!("unknown theme '{other}'")),
                 }
             }
             "--layout" => {
                 args.layout = match value().as_str() {
-                    "dock" => Layout::Dock,
-                    "map" => Layout::Map,
+                    "dock" => Some(Layout::Dock),
+                    "map" => Some(Layout::Map),
+                    "focus" => Some(Layout::Focus),
+                    "fleet" => Some(Layout::Fleet),
                     other => fail(format!("unknown layout '{other}'")),
                 }
+            }
+            "--design" => {
+                let name = value();
+                args.design = rgf_ui::design::find(&name).unwrap_or_else(|| fail(format!("unknown design '{name}'")));
             }
             "--phone" => args.size = [400.0, 800.0],
             "--size" => {
@@ -161,8 +172,13 @@ pub fn run() -> eframe::Result {
         "Robotics Ground Station",
         options,
         Box::new(move |cc| {
-            let mut station = StationApp::new(&cc.egui_ctx, backend_url, Some(tile_cache), args.dark);
-            station.workspace.layout = args.layout;
+            let mut station = StationApp::new(&cc.egui_ctx, backend_url, Some(tile_cache), args.dark.unwrap_or(true));
+            if args.design != 0 {
+                station.set_design(&cc.egui_ctx, args.design, args.dark);
+            }
+            if let Some(layout) = args.layout {
+                station.workspace.layout = layout;
+            }
             for title in &args.show {
                 station.workspace.show_panel(title);
             }

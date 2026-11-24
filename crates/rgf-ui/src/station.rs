@@ -429,6 +429,14 @@ impl Station {
         self.vehicles.len() > 1
     }
 
+    /// Engage or release the emergency stop of one vehicle, selected or not.
+    pub fn set_estop(&mut self, index: usize, engage: bool) {
+        let now = self.now;
+        if let Some(vehicle) = self.vehicles.get_mut(index) {
+            vehicle.client.set_estop(engage, now);
+        }
+    }
+
     /// Emergency-stop every vehicle.
     pub fn stop_all(&mut self) {
         let now = self.now;

@@ -314,8 +314,6 @@ impl Panel for MotorsPanel {
         ui.add_space(4.0);
 
         let peaks = Peaks::of(station);
-        card(ui, "Layout", |ui| diagram(ui, station, peaks.current_a));
-        ui.add_space(4.0);
 
         card(ui, "Status", |ui| {
             let vehicle: &Vehicle = station;
@@ -331,5 +329,7 @@ impl Panel for MotorsPanel {
             ui.add_space(2.0);
             hint(ui, "Graphs show the last 30 s, to the same scale for every motor.");
         });
+        ui.add_space(4.0);
+        card(ui, "Layout", |ui| diagram(ui, station, peaks.current_a));
     }
 }

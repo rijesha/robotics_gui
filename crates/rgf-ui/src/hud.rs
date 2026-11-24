@@ -4,10 +4,10 @@
 //! The cards are drawn in the map's own layer, after it, so floating panels always open
 //! above them.
 
-use crate::panels::drive::{drive_controls, mode_row};
+use crate::panels::drive::{drive_controls, mode_name, mode_row};
 use crate::panels::{map, mission, motors, video};
 use crate::widgets::{heading, tx_status, tx_visible};
-use crate::{fleet, Station};
+use crate::{design, fleet, theme, Station};
 use egui::{Align2, Rect, Sense, Vec2};
 use rgf_core::client::label;
 use rgf_core::msgs::common::Mode;
@@ -26,6 +26,7 @@ const ABOVE_CREDIT: f32 = 28.0;
 /// Which cards to leave out because the panel that says the same thing is open.
 #[derive(Default, Clone, Copy)]
 pub struct Hidden {
+    pub vehicles: bool,
     pub mission: bool,
     pub video: bool,
     pub motors: bool,
@@ -63,8 +64,9 @@ impl Hud {
             None => builder = builder.invisible(),
         }
         let mut child = ui.new_child(builder);
-        let p = crate::theme::of(&child);
-        let fill = egui::Color32::from_rgba_unmultiplied(p.surface.r(), p.surface.g(), p.surface.b(), 236);
+        let p = theme::of(&child);
+        let glass = design::current().glass;
+        let fill = egui::Color32::from_rgba_unmultiplied(p.surface.r(), p.surface.g(), p.surface.b(), glass);
         let size =
             map::toolbar_frame(&child).fill(fill).inner_margin(8).show(&mut child, add_contents).response.rect.size();
         if known != Some(size) {
@@ -76,15 +78,18 @@ impl Hud {
 
     /// Draw every card over `area`, the rectangle the map fills.
     pub fn ui(&mut self, ui: &mut egui::Ui, area: Rect, station: &mut Station, hidden: Hidden) {
-        let top_left = area.left_top() + Vec2::new(MARGIN, BELOW_TOOLBAR);
-        let vehicles = self.card(ui, "vehicles", Align2::LEFT_TOP, top_left, 230.0, |ui| {
-            ui.set_width(214.0);
-            heading(ui, "Vehicles");
-            fleet::list(ui, station);
-        });
+        let mut top_left = area.left_top() + Vec2::new(MARGIN, BELOW_TOOLBAR);
+        if !hidden.vehicles {
+            let vehicles = self.card(ui, "vehicles", Align2::LEFT_TOP, top_left, 230.0, |ui| {
+                ui.set_width(214.0);
+                heading(ui, "Vehicles");
+                fleet::list(ui, station);
+            });
+            top_left = vehicles.left_bottom() + Vec2::new(0.0, GAP);
+        }
         let has_mission = station.client.nav.as_ref().is_some_and(|n| n.wp_count > 0);
         if has_mission && !hidden.mission {
-            let at = vehicles.left_bottom() + Vec2::new(0.0, GAP);
+            let at = top_left;
             self.card(ui, "mission", Align2::LEFT_TOP, at, 230.0, |ui| {
                 ui.set_width(214.0);
                 heading(ui, "Mission");
@@ -94,8 +99,10 @@ impl Hud {
 
         if !hidden.video && station.video_texture.is_some() {
             let at = area.right_top() + Vec2::new(-MARGIN, BELOW_LEGEND);
-            self.card(ui, "video", Align2::RIGHT_TOP, at, 260.0, |ui| {
-                video::picture(ui, station, 236.0);
+            // Smaller beside a narrow map, so it does not sit on the vehicle.
+            let width = (area.width() * 0.22).clamp(150.0, 236.0);
+            self.card(ui, "video", Align2::RIGHT_TOP, at, width + 24.0, |ui| {
+                video::picture(ui, station, width);
             });
         }
 
@@ -105,6 +112,17 @@ impl Hud {
                 heading(ui, "Motors");
                 motors::strip(ui, station);
             });
+        }
+
+        if design::current().strip && station.client.heartbeat.is_some() {
+            // Beside a narrow map the strip moves to the corner and keeps to the essentials,
+            // leaving the other corner to the drive controls.
+            let compact = area.width() < 1150.0;
+            let (corner, at) = match compact {
+                true => (Align2::LEFT_BOTTOM, area.left_bottom() + Vec2::new(MARGIN, -ABOVE_SCALE)),
+                false => (Align2::CENTER_BOTTOM, area.center_bottom() + Vec2::new(0.0, -14.0)),
+            };
+            self.card(ui, "strip", corner, at, 760.0, |ui| strip(ui, station, compact));
         }
 
         if !hidden.drive {
@@ -129,4 +147,75 @@ impl Hud {
             }
         }
     }
+}
+
+/// One big number of the telemetry strip.
+fn figure(ui: &mut egui::Ui, name: &str, value: String, unit: &str, color: egui::Color32) {
+    let p = theme::of(ui);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        // A fixed width keeps the strip from shifting as digits change.
+        ui.set_min_width(74.0);
+        ui.label(egui::RichText::new(name.to_uppercase()).size(10.0).color(p.dim).extra_letter_spacing(0.6));
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            ui.label(egui::RichText::new(value).size(22.0).strong().color(color));
+            ui.label(egui::RichText::new(unit).size(11.5).color(p.dim));
+        });
+    });
+}
+
+/// The selected vehicle at a glance: the few numbers an operator checks while driving.
+fn strip(ui: &mut egui::Ui, station: &Station, compact: bool) {
+    let p = theme::of(ui);
+    let client = &station.client;
+    let alive = client.vehicle_alive(station.now);
+    let live = if alive { p.text } else { p.dim };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 14.0;
+        let mode = client.mode().map_or("–", mode_name);
+        let mode_color = match client.mode() {
+            _ if !alive => p.bad,
+            Some(Mode::AUTO) => p.ok,
+            Some(Mode::DISARMED) | None => p.dim,
+            Some(Mode::MOTOR_TEST) => p.warn,
+            Some(_) => p.accent,
+        };
+        figure(ui, "Mode", if alive { mode.to_owned() } else { "Link lost".to_owned() }, "", mode_color);
+        if let Some(pose) = &client.pose {
+            ui.separator();
+            figure(ui, "Speed", format!("{:.1}", pose.speed_mps), "m/s", live);
+            let heading_deg = pose.heading_rad.to_degrees().rem_euclid(360.0);
+            figure(ui, "Heading", format!("{heading_deg:03.0}"), "°", live);
+            if !compact {
+                figure(ui, "Position", format!("±{:.2}", pose.h_acc_m), "m", live);
+            }
+        }
+        if let Some(power) = &client.power {
+            ui.separator();
+            let color = if power.soc_pct < 15.0 {
+                p.bad
+            } else if power.soc_pct < 30.0 {
+                p.warn
+            } else {
+                live
+            };
+            figure(ui, "Battery", format!("{:.0}", power.soc_pct), "%", color);
+            if !compact {
+                figure(ui, "Power", format!("{:.0}", power.power_w), "W", live);
+            }
+        }
+        let hottest = client.motors.iter().flatten().map(|m| m.temp_c).fold(f32::NAN, f32::max);
+        if hottest.is_finite() && !compact {
+            ui.separator();
+            let color = if hottest > 80.0 {
+                p.bad
+            } else if hottest > 70.0 {
+                p.warn
+            } else {
+                live
+            };
+            figure(ui, "Hottest motor", format!("{hottest:.0}"), "°C", color);
+        }
+    });
 }

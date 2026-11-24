@@ -7,7 +7,7 @@ use crate::panels::rtk::fix_chip;
 use crate::panels::{self, DEFAULT_LAYOUT};
 use crate::theme::{self, Palette};
 use crate::widgets::{battery_icon, chip, segment, tx_status};
-use crate::{fleet, Layout, Station, Workspace};
+use crate::{design, fleet, Layout, Station, Workspace};
 use egui::{Margin, RichText};
 use rgf_core::client::label;
 use rgf_core::msgs::common::Mode;
@@ -23,11 +23,19 @@ impl StationApp {
     /// `backend_url` is the backend's WebSocket address; `tile_cache` an optional
     /// directory for map tiles (ignored in the browser, which caches by itself).
     pub fn new(ctx: &egui::Context, backend_url: impl Into<String>, tile_cache: Option<PathBuf>, dark: bool) -> Self {
-        theme::install(ctx, dark);
+        design::apply(ctx, 0, dark);
         Self {
             station: Station::new(backend_url),
             workspace: Workspace::new(panels::all(ctx, tile_cache), DEFAULT_LAYOUT),
         }
+    }
+
+    /// Switch to another of [`design::DESIGNS`]: its colours, its shapes and its layout.
+    /// `dark` overrides the theme the design starts in.
+    pub fn set_design(&mut self, ctx: &egui::Context, index: usize, dark: Option<bool>) {
+        let chosen = &design::DESIGNS[index.min(design::DESIGNS.len() - 1)];
+        design::apply(ctx, index, dark.unwrap_or(chosen.starts_dark));
+        self.workspace.arrange(chosen.layout, chosen.desktop);
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -66,11 +74,13 @@ impl StationApp {
     fn status_bar(&mut self, ui: &mut egui::Ui, phone: bool, p: &Palette) {
         let station = &mut self.station;
         let now = station.now;
+        // Applied after the bar is drawn, when nothing borrows the workspace.
+        let mut pick_design = None;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             let alive = station.client.vehicle_alive(now);
             // The vehicle switcher takes the room the finer readings would use on a narrow window.
-            let roomy = !phone && (!station.is_fleet() || ui.ctx().content_rect().width() >= 1250.0);
+            let roomy = !phone && (!station.is_fleet() || ui.ctx().content_rect().width() >= 1400.0);
             let name = RichText::new(station.name()).size(15.0).strong();
             if station.is_fleet() && phone {
                 // No room in a phone's bar for a button per vehicle, or for a second stop button.
@@ -108,7 +118,10 @@ impl StationApp {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 5.0;
                         battery_icon(ui, power.soc_pct / 100.0, p);
-                        ui.label(format!("{:.0}%", power.soc_pct));
+                        // Beside a row of vehicles on a narrow window, the icon alone has to do.
+                        if roomy || !station.is_fleet() {
+                            ui.label(format!("{:.0}%", power.soc_pct));
+                        }
                         if roomy {
                             ui.label(RichText::new(format!("{:.0} W", power.power_w)).color(p.dim));
                         }
@@ -160,10 +173,11 @@ impl StationApp {
                 }
                 if !phone {
                     let floating = self.workspace.layout == Layout::Map;
+                    let docked = self.workspace.layout == Layout::Dock;
                     ui.menu_button("View", |ui| {
                         for title in self.workspace.titles() {
                             if !floating {
-                                if ui.button(&title).clicked() {
+                                if (docked || title != "Map") && ui.button(&title).clicked() {
                                     self.workspace.show_panel(&title);
                                 }
                             } else if title != "Map" {
@@ -174,23 +188,32 @@ impl StationApp {
                             }
                         }
                         ui.separator();
+                        ui.menu_button("Design", |ui| {
+                            for (index, choice) in design::DESIGNS.iter().enumerate() {
+                                let current = design::current_index() == index;
+                                if ui.selectable_label(current, choice.name).on_hover_text(choice.about).clicked() {
+                                    pick_design = Some(index);
+                                }
+                            }
+                        });
                         if ui.button("Reset layout").clicked() {
                             self.workspace.reset_layout();
                         }
                     });
-                    // Added right to left, so this reads Dock | Map.
+                    // Added right to left, so this reads Dock | Map | Focus | Fleet.
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
-                        let layout = &mut self.workspace.layout;
-                        let map = segment(ui, layout, Layout::Map, "Map")
-                            .on_hover_text("The map fills the window, with everything else floating over it");
-                        let dock = segment(ui, layout, Layout::Dock, "Dock").on_hover_text("Panels side by side");
-                        station.anchor("layout.map", &map);
-                        station.anchor("layout.dock", &dock);
+                        for (layout, name, about) in Layout::ALL.into_iter().rev() {
+                            let response = segment(ui, &mut self.workspace.layout, layout, name).on_hover_text(about);
+                            station.anchor(format!("layout.{}", name.to_lowercase()), &response);
+                        }
                     });
                 }
             });
         });
+        if let Some(index) = pick_design {
+            self.set_design(ui.ctx(), index, None);
+        }
     }
 
     /// Full-width notices for conditions the operator must not miss.

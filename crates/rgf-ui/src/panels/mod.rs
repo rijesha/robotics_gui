@@ -37,4 +37,5 @@ pub const DEFAULT_LAYOUT: DesktopLayout = DesktopLayout {
     center: &["Map"],
     right_top: &["Video", "Lidar"],
     right_bottom: &["Mission", "Settings", "RTK Base", "Link"],
+    right_top_share: 0.36,
 };

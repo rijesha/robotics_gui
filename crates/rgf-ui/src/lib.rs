@@ -5,6 +5,7 @@
 //! built-in panel; build your own `Workspace` to add or replace panels.
 
 pub mod app;
+pub mod design;
 pub mod fleet;
 pub mod hud;
 pub mod link;

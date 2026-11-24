@@ -1,5 +1,6 @@
-//! Arranges panels: a dockable tile layout or a map with everything floating over it on
-//! wide screens, one panel at a time with a tab bar on phones.
+//! Arranges panels. Wide screens choose between docked tiles, a map with everything
+//! floating over it, a map beside one tool at a time, and a map between a board of
+//! vehicles and the selected one's detail. Phones get one panel at a time with a tab bar.
 
 use crate::hud::{Hidden, Hud};
 use crate::{Panel, Station};
@@ -9,12 +10,15 @@ use egui_tiles::{Container, Linear, LinearDir, Tile, TileId, Tiles, Tree};
 pub const PHONE_WIDTH: f32 = 700.0;
 
 /// How the built-in desktop layout groups panels, by title.
+#[derive(Clone, Copy)]
 pub struct DesktopLayout {
     pub left_top: &'static [&'static str],
     pub left_bottom: &'static [&'static str],
     pub center: &'static [&'static str],
     pub right_top: &'static [&'static str],
     pub right_bottom: &'static [&'static str],
+    /// Share of the right column's height given to its top group.
+    pub right_top_share: f32,
 }
 
 /// How a wide screen is arranged.
@@ -25,6 +29,35 @@ pub enum Layout {
     /// The map fills the window; the essentials are pinned over it and any other panel
     /// opens as a floating window.
     Map,
+    /// A rail of tools beside the map; the chosen tool opens between them at full height.
+    Focus,
+    /// A card per vehicle on the left, the map, and one panel of detail on the right.
+    Fleet,
+}
+
+impl Layout {
+    pub const ALL: [(Layout, &'static str, &'static str); 4] = [
+        (Layout::Dock, "Dock", "Panels side by side"),
+        (Layout::Map, "Map", "The map fills the window, with everything else floating over it"),
+        (Layout::Focus, "Focus", "The map beside one tool at a time"),
+        (Layout::Fleet, "Fleet", "A card per vehicle, the map, and the selected vehicle in detail"),
+    ];
+}
+
+/// Glyph for a panel's button on the tool rail.
+fn glyph(title: &str) -> &'static str {
+    match title {
+        "Drive" => "🎮",
+        "Mission" => "🚩",
+        "Video" => "📷",
+        "Lidar" => "📡",
+        "Motors" => "⚙",
+        "Power" => "⚡",
+        "Settings" => "🔧",
+        "RTK Base" => "📍",
+        "Link" => "🔗",
+        _ => "▣",
+    }
 }
 
 /// Title of the panel the map layout puts behind everything else.
@@ -38,6 +71,10 @@ pub struct Workspace {
     pub layout: Layout,
     /// In the map layout, which panels are open as floating windows.
     floating: Vec<bool>,
+    /// In the focus layout, the tool open beside the map.
+    tool: Option<usize>,
+    /// In the fleet layout, the panel showing the selected vehicle's detail.
+    detail: usize,
     hud: Hud,
 }
 
@@ -45,7 +82,25 @@ impl Workspace {
     pub fn new(panels: Vec<Box<dyn Panel>>, layout: DesktopLayout) -> Self {
         let tree = build_tree(&panels, &layout);
         let floating = vec![false; panels.len()];
-        Self { panels, tree, desktop: layout, phone_tab: 0, layout: Layout::Dock, floating, hud: Hud::default() }
+        let first_tool = panels.iter().position(|p| p.title() != MAP_TITLE).unwrap_or(0);
+        Self {
+            panels,
+            tree,
+            desktop: layout,
+            phone_tab: 0,
+            layout: Layout::Dock,
+            floating,
+            tool: None,
+            detail: first_tool,
+            hud: Hud::default(),
+        }
+    }
+
+    /// Arrange the workspace the way a design asks for.
+    pub fn arrange(&mut self, layout: Layout, desktop: DesktopLayout) {
+        self.layout = layout;
+        self.desktop = desktop;
+        self.tree = build_tree(&self.panels, &self.desktop);
     }
 
     pub fn reset_layout(&mut self) {
@@ -73,8 +128,13 @@ impl Workspace {
     pub fn show_panel(&mut self, title: &str) {
         let Some(index) = self.index_of(title) else { return };
         self.phone_tab = index;
-        if self.layout == Layout::Map {
-            self.set_floating(title, true);
+        if title != MAP_TITLE {
+            match self.layout {
+                Layout::Map => self.floating[index] = true,
+                Layout::Focus => self.tool = Some(index),
+                Layout::Fleet => self.detail = index,
+                Layout::Dock => {}
+            }
         }
         if let Some(tile) = self.tree.tiles.find_pane(&index) {
             self.tree.make_active(|id, _| id == tile);
@@ -100,6 +160,10 @@ impl Workspace {
             self.phone_ui(ui, station);
         } else if let (Layout::Map, Some(map)) = (self.layout, self.index_of(MAP_TITLE)) {
             self.map_ui(ui, station, map);
+        } else if let (Layout::Focus, Some(map)) = (self.layout, self.index_of(MAP_TITLE)) {
+            self.focus_ui(ui, station, map);
+        } else if let (Layout::Fleet, Some(map)) = (self.layout, self.index_of(MAP_TITLE)) {
+            self.fleet_ui(ui, station, map);
         } else {
             let mut behavior = Behavior { panels: &mut self.panels, station };
             self.tree.ui(&mut behavior, ui);
@@ -111,6 +175,7 @@ impl Workspace {
         self.panels[map].ui(ui, station);
 
         let hidden = Hidden {
+            vehicles: false,
             mission: self.is_floating("Mission"),
             video: self.is_floating("Video"),
             motors: self.is_floating("Motors"),
@@ -148,6 +213,112 @@ impl Workspace {
                     }
                 });
         }
+    }
+
+    /// The map in `rect` with the camera and drive controls pinned over it. `shown` is
+    /// the panel open beside it, whose pinned twin steps aside.
+    fn map_pane(&mut self, ui: &mut egui::Ui, station: &mut Station, map: usize, rect: egui::Rect, shown: usize) {
+        let shown = self.panels[shown].title();
+        let hidden =
+            Hidden { vehicles: true, mission: true, motors: true, video: shown == "Video", drive: shown == "Drive" };
+        pane(ui, rect, "map_pane", |ui| {
+            self.panels[map].ui(ui, station);
+            self.hud.ui(ui, rect, station, hidden);
+        });
+    }
+
+    fn focus_ui(&mut self, ui: &mut egui::Ui, station: &mut Station, map: usize) {
+        const RAIL: f32 = 78.0;
+        let p = crate::theme::of(ui);
+        let full = ui.max_rect();
+        let (rail, rest) = full.split_left_right_at_x(full.left() + RAIL);
+        let drawer_width = if self.tool.is_some() { (rest.width() * 0.36).clamp(320.0, 430.0) } else { 0.0 };
+        let (drawer, map_rect) = rest.split_left_right_at_x(rest.left() + drawer_width);
+
+        pane(ui, rail, "tool_rail", |ui| {
+            ui.painter().rect_filled(rail, 0, p.surface);
+            ui.add_space(6.0);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                for (index, panel) in self.panels.iter().enumerate().filter(|(_, p)| p.title() != MAP_TITLE) {
+                    let open = self.tool == Some(index);
+                    let mut job = egui::text::LayoutJob { halign: egui::Align::Center, ..Default::default() };
+                    let format = |size: f32, color| egui::TextFormat {
+                        font_id: egui::FontId::proportional(size),
+                        color,
+                        ..Default::default()
+                    };
+                    job.append(glyph(panel.title()), 0.0, format(19.0, if open { p.accent } else { p.dim }));
+                    // The rail is narrow: one word each.
+                    let word = panel.title().split(' ').next().unwrap_or_default();
+                    job.append(&format!("\n{word}"), 0.0, format(10.5, if open { p.text } else { p.dim }));
+                    let button = egui::Button::selectable(open, job).min_size(egui::vec2(RAIL - 12.0, 50.0));
+                    let response = ui.add(button);
+                    station.anchor(format!("tool.{}", panel.title()), &response);
+                    if response.clicked() {
+                        // Clicking the open tool puts it away and gives the map the room.
+                        self.tool = if open { None } else { Some(index) };
+                    }
+                }
+            });
+        });
+
+        if let Some(tool) = self.tool {
+            pane(ui, drawer, "tool_drawer", |ui| {
+                ui.painter().rect_filled(drawer, 0, p.bg);
+                egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 10, bottom: 0 }).show(
+                    ui,
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(self.panels[tool].title()).size(17.0).strong());
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("✖").on_hover_text("Close").clicked() {
+                                    self.tool = None;
+                                }
+                            });
+                        });
+                    },
+                );
+                show_panel(self.panels[tool].as_mut(), ui, station);
+            });
+        }
+        self.map_pane(ui, station, map, map_rect, self.tool.unwrap_or(map));
+    }
+
+    fn fleet_ui(&mut self, ui: &mut egui::Ui, station: &mut Station, map: usize) {
+        let p = crate::theme::of(ui);
+        let full = ui.max_rect();
+        let side = (full.width() * 0.24).clamp(280.0, 340.0);
+        let (board, rest) = full.split_left_right_at_x(full.left() + side);
+        let detail_width = (full.width() * 0.28).clamp(320.0, 420.0);
+        let (map_rect, detail) = rest.split_left_right_at_x(rest.right() - detail_width);
+
+        pane(ui, board, "fleet_board", |ui| {
+            ui.painter().rect_filled(board, 0, p.bg);
+            egui::Frame::new().inner_margin(10).show(ui, |ui| {
+                crate::widgets::heading(ui, "Vehicles");
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| crate::fleet::board(ui, station));
+            });
+        });
+
+        pane(ui, detail, "fleet_detail", |ui| {
+            ui.painter().rect_filled(detail, 0, p.bg);
+            egui::Frame::new().inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 0 }).show(ui, |ui| {
+                ui.label(egui::RichText::new(station.name()).size(16.0).strong());
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                    for (index, panel) in self.panels.iter().enumerate().filter(|(_, p)| p.title() != MAP_TITLE) {
+                        if ui.selectable_label(self.detail == index, panel.title()).clicked() {
+                            self.detail = index;
+                        }
+                    }
+                });
+            });
+            show_panel(self.panels[self.detail].as_mut(), ui, station);
+        });
+        self.map_pane(ui, station, map, map_rect, self.detail);
     }
 
     /// Buttons along the top of the map that open and close each panel's floating window.
@@ -200,6 +371,14 @@ impl Workspace {
             show_panel(self.panels[self.phone_tab].as_mut(), ui, station);
         });
     }
+}
+
+/// Lay out `add_contents` in `rect` and nowhere else.
+fn pane(ui: &mut egui::Ui, rect: egui::Rect, salt: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+    ui.scope_builder(egui::UiBuilder::new().id_salt(salt).max_rect(rect), |ui| {
+        ui.set_clip_rect(rect.intersect(ui.clip_rect()));
+        add_contents(ui);
+    });
 }
 
 fn show_panel(panel: &mut dyn Panel, ui: &mut egui::Ui, station: &mut Station) {
@@ -285,7 +464,7 @@ fn build_tree(panels: &[Box<dyn Panel>], layout: &DesktopLayout) -> Tree<usize> 
     };
     let left = column(&mut tiles, vec![left_top, left_bottom], 0.5);
     let middle = column(&mut tiles, vec![center, extra], 0.75);
-    let right = column(&mut tiles, vec![right_top, right_bottom], 0.36);
+    let right = column(&mut tiles, vec![right_top, right_bottom], layout.right_top_share);
 
     let columns: Vec<(TileId, f32)> = [(left, 0.25), (middle, 0.46), (right, 0.29)]
         .into_iter()

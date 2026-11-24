@@ -43,7 +43,7 @@ pub struct Demo {
     waiting_since: Option<f64>,
 }
 
-pub const NAMES: &str = "survey, drive, linkloss, themes, phone, fleet";
+pub const NAMES: &str = "survey, drive, linkloss, themes, phone, fleet, cruise";
 
 pub fn script(name: &str) -> Option<Vec<Step>> {
     use Step::*;
@@ -186,6 +186,19 @@ pub fn script(name: &str) -> Option<Vec<Step>> {
             Caption("STOP ALL stops every vehicle at once"),
             Click("stop_all"),
             Wait(3.0),
+        ],
+        // No captions and no layout changes: something moving to look at in any design.
+        // Run with at least two vehicles.
+        "cruise" => vec![
+            Wait(3.0),
+            Click("mode.Manual"),
+            Settled(label::MODE),
+            Drag("drive.stick", (0.0, 0.0), (0.4, -0.7), 3.0),
+            Click("vehicle.1"),
+            Wait(0.5),
+            Click("mode.Manual"),
+            Settled(label::MODE),
+            Drag("drive.stick", (0.0, 0.0), (0.45, -0.7), 14.0),
         ],
         _ => return None,
     })

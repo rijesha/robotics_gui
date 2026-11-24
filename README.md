@@ -29,6 +29,21 @@ floating window.
 
 ![Map layout: three vehicles, tractor selected and driving](docs/map-mode.png)
 
+## Designs
+
+Besides the classic docked look above there are four complete designs, each with its own
+layout, colours and both themes. They came out of a review of the screenshots and clips
+on this page: [what the review found and what each design answers](docs/ux-review.md).
+
+| | |
+|---|---|
+| **Horizon**: map edge to edge under glass cards, with a strip of the numbers that matter. `--design horizon` | **Workbench**: a rail of tools, one open at full height beside the map. `--design workbench` |
+| ![Horizon design](docs/designs/horizon.png) | ![Workbench design](docs/designs/workbench.png) |
+| **Fleet board**: a card per vehicle with its own stop button, and the selected one in detail. `--design fleet` | **Daylight**: high contrast and 20% larger for a tablet in the sun, in two columns. `--design daylight` |
+| ![Fleet board design](docs/designs/fleet-board.png) | ![Daylight design](docs/designs/daylight.png) |
+
+Switch while running from **View → Design**.
+
 ## See it in use
 
 These clips are recorded from the real application by its built-in demo scripts, which
@@ -68,7 +83,8 @@ drive one, select another, open the Motors panel over the map, STOP ALL.
 cargo run -p station                      # desktop app with built-in backend and simulator
 cargo run -p station -- --vehicle boat    # rover6 (default), tractor, skid, boat
 cargo run -p station -- --vehicle rover6,tractor,skid   # several vehicles at once
-cargo run -p station -- --layout map      # start in the map layout (or use Dock | Map in the bar)
+cargo run -p station -- --layout map      # dock, map, focus or fleet (or use the switch in the bar)
+cargo run -p station -- --design horizon  # classic, horizon, workbench, fleet, daylight
 cargo run -p station -- --theme light     # dark is the default; the sun/moon button switches
 cargo run -p station -- --phone           # try the phone layout in a small window
 cargo run -p station -- --demo survey     # walkthroughs: survey, drive, linkloss, themes, phone
@@ -115,7 +131,7 @@ cargo run -p rgf-backend -- --vehicle 127.0.0.1:14560,127.0.0.1:14561
 
 The web UI connects to port 9002 on the host that served it; override with
 `?backend=ws://host:port`; add `?theme=light` to start in the light theme and
-`?layout=map` to start in the map layout.
+`?layout=map` to start in the map layout, `?design=horizon` (or another design) to start in it.
 
 ## Using it
 
@@ -124,7 +140,7 @@ The web UI connects to port 9002 on the host that served it; override with
 | Map | Imagery, every vehicle (click one to select it), trail, expected path (yellow), mission, RTK base, lidar returns, obstacles (red) and terrain height (colour scale). Tools: **Waypoints** and **Survey area** add points on click; drag a point to move it, right-click to delete. |
 | Mission | Waypoint list, survey settings (pass spacing, direction, overshoot, perimeter lap), upload, start, pause, progress and cross-track error. |
 | Drive | Mode selection, joystick (or W A S D / arrow keys) in Manual. |
-| Motors | One block per actuator the vehicle reports: current, torque, speed (or angle for steering and rudders) and temperature, each with its last 30 s, plus commanded output and faults. In Motor test each has a slider. |
+| Motors | One block per actuator the vehicle reports, above a sketch of where each is mounted: current, torque, speed (or angle for steering and rudders) and temperature, each with its last 30 s, plus commanded output and faults. In Motor test each has a slider. |
 | Power | Battery state, time remaining, power history, current by motor. |
 | Settings | Vehicle parameters. Each row shows whether the last change was confirmed. |
 | RTK Base | Base status, survey-in or fixed-position setup, rover fix quality. |
@@ -132,7 +148,7 @@ The web UI connects to port 9002 on the host that served it; override with
 | Lidar | Orbitable 3D point cloud coloured by height. |
 | Link | Backend and vehicle link state; simulator vehicle picker and link-fault injection. |
 
-The status bar shows mode, GNSS fix, battery and speed, and holds the layout switch, the
+The status bar shows mode, GNSS fix, battery and speed, and holds the layout switch (**Dock | Map | Focus | Fleet**), the
 theme switch and the STOP button. A banner appears under it when the backend or vehicle
 link is lost or the emergency stop is engaged.
 
@@ -155,6 +171,17 @@ progress, the camera picture, a table of current, torque, speed and temperature 
 and the mode buttons with the joystick in Manual. The row of names at the top right (or
 **View**) opens any panel as a floating window that can be moved, resized, collapsed and
 closed; a pinned card steps aside while its full panel is open.
+
+**Focus** has a rail of tools down the left edge. One tool opens at a time between the
+rail and the map, at full height; clicking it again closes it. The camera and drive
+controls stay pinned over the map.
+
+**Fleet** puts a card for every vehicle on the left (mode, speed, power, hottest motor,
+battery, and a stop button each), the map in the middle, and one panel of detail for the
+selected vehicle on the right.
+
+A design (`--design`, **View → Design**) picks one of these layouts along with its colours,
+shapes and size; see [Designs](#designs).
 
 Panels can be dragged, split and tabbed in the Dock layout. Below 700 px wide the app switches to one panel
 at a time with a tab bar, and puts a joystick over the map in Manual mode.
